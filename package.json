@@ -1,10 +1,10 @@
 {
   "name": "anyquery",
   "displayName": "AnyQuery",
-  "version": "0.3.0",
+  "version": "0.1.0",
   "description": "Query MySQL, PostgreSQL, MongoDB, Redis and OpenSearch in VS Code",
-  "publisher": "ws-jung",
-  "author": "ws-jung",
+  "publisher": "seller-note",
+  "author": "Wonsug Jung (https://github.com/gardenstone2)",
   "license": "MIT",
   "private": true,
   "repository": {
