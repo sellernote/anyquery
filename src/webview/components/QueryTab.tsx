@@ -10,7 +10,7 @@ import { api } from '../api'
 
 export function QueryTab({ tab, active }: { tab: Tab; active: boolean }) {
   const conn = useStore((s) => s.connections.find((c) => c.id === tab.connectionId))
-  const { updateTab, runTab, showPage, download } = useStore.getState()
+  const { updateTab, runTab, showPage, download, openCell, saveEdits, discardEdits } = useStore.getState()
   const [databases, setDatabases] = useState<string[]>([])
   const [schema, setSchema] = useState<SQLNamespace>()
   const [split, setSplit] = useState(40)
@@ -84,7 +84,7 @@ export function QueryTab({ tab, active }: { tab: Tab; active: boolean }) {
         )}
         <button
           className="primary run-button"
-          disabled={tab.running}
+          disabled={tab.running || tab.saving}
           onClick={() => run(selectedText(viewRef.current))}
           title="Cmd+Enter / Ctrl+Enter"
         >
@@ -110,8 +110,12 @@ export function QueryTab({ tab, active }: { tab: Tab; active: boolean }) {
             key={tab.runId}
             results={tab.results}
             running={tab.running}
+            saving={tab.saving}
             onPage={(index, page) => showPage(tab.id, index, page)}
             onDownload={(index, format) => download(tab.id, index, format)}
+            onOpenCell={(index, page, row, column) => openCell({ tabId: tab.id, index, page, row, column })}
+            onSave={(index) => saveEdits(tab.id, index)}
+            onDiscard={(index) => discardEdits(tab.id, index)}
           />
         </div>
       </div>

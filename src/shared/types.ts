@@ -54,6 +54,52 @@ export interface QueryResult {
   cursorId?: string
   /** More rows follow, but the next page cannot be read */
   truncated?: boolean
+  /** Set if the cells can be edited */
+  edit?: EditTarget
+}
+
+/**
+ * Where edited cells are saved. Every database uses the same shape:
+ * key columns find the row, and each editable column is saved to a field of that row.
+ */
+export interface EditTarget {
+  /** Shown to the user, e.g. `shop.users` or `books` */
+  name: string
+  /** Finds the table. Each driver sets its own path and reads it back when saving. */
+  path: string[]
+  /** Result columns that find the row, such as the primary key or _id. They cannot be edited. */
+  keys: { column: number; name: string }[]
+  /** The field each result column is saved to. null if the column cannot be edited. */
+  columns: (string | null)[]
+}
+
+export interface CellChange {
+  column: number
+  /** The text typed, or null for NULL */
+  value: string | null
+  /** The value as read */
+  old: unknown
+}
+
+/** The changed cells of one row */
+export interface RowEdit {
+  /** Values of the key columns as read, in the order of EditTarget.keys */
+  key: unknown[]
+  changes: CellChange[]
+}
+
+export interface EditRequest {
+  target: EditTarget
+  rows: RowEdit[]
+}
+
+export interface EditResult {
+  /** Indexes of the rows saved. A database without transactions can save only some of them. */
+  saved: number[]
+  message?: string
+  error?: string
+  /** Cursors closed to free the tab's connection. Their results cannot read more pages. */
+  closedCursors: string[]
 }
 
 /** The next page read with fetchPage */
@@ -129,6 +175,8 @@ export interface Api {
   execute(id: string, query: string, ctx: ExecuteContext): Promise<QueryResult[]>
   fetchPage(id: string, cursorId: string): Promise<ResultPage>
   closeSession(id: string, sessionId: string): Promise<void>
+  /** Saves edited cells on the tab's session */
+  saveEdits(id: string, sessionId: string, req: EditRequest): Promise<EditResult>
   /** Webviews cannot show confirm(), so VS Code shows the dialog */
   confirm(message: string, action: string): Promise<boolean>
   copyText(text: string): Promise<void>

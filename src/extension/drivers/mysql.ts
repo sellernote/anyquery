@@ -9,14 +9,17 @@ import type { Connection as CoreConnection } from 'mysql2'
 import {
   PAGE_SIZE,
   type ConnectionConfig,
+  type EditRequest,
+  type EditTarget,
   type ExecuteContext,
   type OpenQuery,
   type ResultPage,
   type TreeNode
 } from '@shared/types'
 import { plural } from '@shared/format'
-import type { Cursor, Driver, DriverResult, ResultBody } from './types'
+import type { Cursor, Driver, DriverResult, EditOutcome, ResultBody } from './types'
 import { runAll, splitSql, timed, toPlain, withTimeout } from './util'
+import { saveSqlEdits, sqlEditTarget } from './sqlEdits'
 
 interface Session {
   conn: Connection
@@ -37,6 +40,18 @@ const NET_WRITE_TIMEOUT_S = 600
 
 /** Max time to wait for the query to finish when closing a cursor */
 const STOP_TIMEOUT_MS = 5_000
+
+/** Server status flags in OK packets */
+const SERVER_STATUS_IN_TRANS = 0x0001
+const SERVER_STATUS_AUTOCOMMIT = 0x0002
+
+/** Column types read as binary (shown as hex) or as objects, so the text shown cannot be saved back */
+const BIT = 16
+const VECTOR = 242
+const GEOMETRY = 255
+/** String and blob types. Binary when their character set is binary. */
+const STRING_TYPES = new Set([15, 249, 250, 251, 252, 253, 254])
+const BINARY_CHARSET = 63
 
 export function quoteId(name: string): string {
   return '`' + name.replace(/`/g, '``') + '`'
@@ -186,12 +201,74 @@ export class MysqlDriver implements Driver {
         last.cursor = undefined
         last.truncated = true
       }
-      last = await timed(sql, () => this.query(conn, sql, ctx.sessionId))
+      let fields: FieldPacket[] | undefined
+      last = await timed(sql, async () => {
+        const cursor = await this.query(conn, sql, ctx.sessionId)
+        fields = cursor.fields
+        return cursor.body
+      })
+      if (fields && last.columns) last.edit = await this.editTarget(fields)
       return last
     })
   }
 
-  private async query(conn: Connection, sql: string, sessionId: string): Promise<ResultBody> {
+  /**
+   * Results from one table with its primary key can be edited. MySQL tells which table and alias
+   * each column came from, so a table read twice (a self join) shows up as two sources.
+   */
+  private async editTarget(fields: FieldPacket[]): Promise<EditTarget | undefined> {
+    const source = (f: FieldPacket) => (f.orgTable && f.db ? JSON.stringify([f.db, f.orgTable, f.table]) : undefined)
+    const sources = new Set(fields.map(source).filter(Boolean))
+    if (sources.size !== 1) return
+    const [key] = sources
+    const [database, table] = JSON.parse(key!) as string[]
+    try {
+      const rows = await this.rows(
+        `SELECT c.COLUMN_NAME, k.COLUMN_NAME IS NOT NULL, c.EXTRA
+         FROM information_schema.COLUMNS c
+         LEFT JOIN information_schema.KEY_COLUMN_USAGE k
+           ON k.TABLE_SCHEMA = c.TABLE_SCHEMA AND k.TABLE_NAME = c.TABLE_NAME
+           AND k.COLUMN_NAME = c.COLUMN_NAME AND k.CONSTRAINT_NAME = 'PRIMARY'
+         WHERE c.TABLE_SCHEMA = ? AND c.TABLE_NAME = ?`,
+        [database, table]
+      )
+      // Generated columns cannot be set. DEFAULT_GENERATED only means the default is an expression.
+      const generated = new Set(rows.filter((r) => /\b(VIRTUAL|STORED|PERSISTENT) GENERATED\b/i.test(String(r[2]))).map((r) => String(r[0])))
+      return sqlEditTarget(
+        `${database}.${table}`,
+        [database, table],
+        fields.map((f) => (source(f) === key && !generated.has(f.orgName) ? f.orgName : null)),
+        rows.filter((r) => Number(r[1])).map((r) => String(r[0])),
+        (i) => isEditable(fields[i])
+      )
+    } catch {
+      return
+    }
+  }
+
+  async saveEdits(sessionId: string, req: EditRequest): Promise<EditOutcome> {
+    const conn = await this.session(sessionId)
+    const [database, table] = req.target.path
+    const run = async (sql: string, values?: unknown[]) => {
+      const [header] = await conn.query(sql, values)
+      return header as ResultSetHeader
+    }
+    // With autocommit off, a transaction is always open
+    const { serverStatus } = await run('DO 0')
+    const inTransaction = (serverStatus & SERVER_STATUS_IN_TRANS) !== 0 || (serverStatus & SERVER_STATUS_AUTOCOMMIT) === 0
+    return saveSqlEdits(
+      // The connection reports matched rows, not changed rows (FOUND_ROWS), so an unchanged row counts too
+      { inTransaction, run: async (sql, values) => (await run(sql, values)).affectedRows },
+      { table: `${quoteId(database)}.${quoteId(table)}`, quote: quoteId, param: () => '?' },
+      req
+    )
+  }
+
+  private async query(
+    conn: Connection,
+    sql: string,
+    sessionId: string
+  ): Promise<{ body: ResultBody; fields?: FieldPacket[] }> {
     // Streaming needs the callback-style connection inside the promise wrapper
     const core = (conn as unknown as { connection: CoreConnection }).connection
     const cursor = new MysqlCursor(core, sql, {
@@ -204,7 +281,7 @@ export class MysqlDriver implements Driver {
       }
     })
     try {
-      return await cursor.first()
+      return { body: await cursor.first(), fields: cursor.fields }
     } catch (err) {
       if ((err as { fatal?: boolean }).fatal) this.sessions.delete(sessionId)
       throw err
@@ -224,6 +301,7 @@ interface CursorHooks {
  * Pauses socket reads once READ_AHEAD_ROWS rows are buffered. While paused, the connection cannot run other queries.
  */
 class MysqlCursor implements Cursor {
+  fields?: FieldPacket[]
   private columns?: string[]
   private header?: ResultSetHeader
   private buffer: unknown[][] = []
@@ -252,7 +330,10 @@ class MysqlCursor implements Cursor {
     const query = conn.query({ sql, rowsAsArray: true })
     query.on('fields', (fields?: FieldPacket[]) => {
       sets++
-      if (sets === 1 && fields) this.columns = fields.map((f) => f.name)
+      if (sets === 1 && fields) {
+        this.fields = fields
+        this.columns = fields.map((f) => f.name)
+      }
     })
     query.on('result', (row: unknown) => {
       // With multiple result sets (e.g. CALL), use only the first
@@ -292,6 +373,10 @@ class MysqlCursor implements Cursor {
 
   async next(): Promise<ResultPage> {
     return this.take()
+  }
+
+  busy(): boolean {
+    return !this.ended
   }
 
   close(): Promise<void> {
@@ -365,6 +450,12 @@ class MysqlCursor implements Cursor {
   private async until(done: () => boolean): Promise<void> {
     while (!done()) await new Promise<void>((resolve) => this.waiters.push(resolve))
   }
+}
+
+function isEditable(field: FieldPacket): boolean {
+  const type = field.columnType ?? field.type
+  if (type === BIT || type === VECTOR || type === GEOMETRY) return false
+  return !(type !== undefined && STRING_TYPES.has(type) && field.characterSet === BINARY_CHARSET)
 }
 
 function describeHeader(header: ResultSetHeader | undefined): string {

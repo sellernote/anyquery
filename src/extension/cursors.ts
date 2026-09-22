@@ -41,21 +41,27 @@ export class CursorRegistry {
     if (this.entries.get(id)?.connectionId === connectionId) await this.close(id)
   }
 
-  closeSession(connectionId: string, sessionId: string): Promise<void> {
-    return this.closeWhere((e) => e.connectionId === connectionId && e.sessionId === sessionId)
+  async closeSession(connectionId: string, sessionId: string): Promise<void> {
+    await this.closeWhere((e) => e.connectionId === connectionId && e.sessionId === sessionId)
   }
 
-  closeConnection(connectionId: string): Promise<void> {
-    return this.closeWhere((e) => e.connectionId === connectionId)
+  /** Closes the session's cursors that still hold its connection, so it can run other queries. Returns their IDs. */
+  releaseSession(connectionId: string, sessionId: string): Promise<string[]> {
+    return this.closeWhere((e) => e.connectionId === connectionId && e.sessionId === sessionId && !!e.cursor.busy?.())
   }
 
-  closeAll(): Promise<void> {
-    return this.closeWhere(() => true)
+  async closeConnection(connectionId: string): Promise<void> {
+    await this.closeWhere((e) => e.connectionId === connectionId)
   }
 
-  private async closeWhere(match: (entry: Entry) => boolean): Promise<void> {
+  async closeAll(): Promise<void> {
+    await this.closeWhere(() => true)
+  }
+
+  private async closeWhere(match: (entry: Entry) => boolean): Promise<string[]> {
     const ids = [...this.entries].filter(([, e]) => match(e)).map(([id]) => id)
     await Promise.all(ids.map((id) => this.close(id)))
+    return ids
   }
 
   private async close(id: string): Promise<void> {

@@ -172,13 +172,47 @@ export function splitPgSql(sql: string): string[] {
   let start = 0
   // Whether the current statement has anything besides comments and spaces
   let hasCode = false
+  scanPgSql(sql, (part, from, to) => {
+    if (part === 'comment') return
+    if (part === 'code' && sql[from] === ';') {
+      if (hasCode) out.push(sql.slice(start, from).trim())
+      start = to
+      hasCode = false
+      return
+    }
+    if (part === 'quoted' || !/\s/.test(sql[from])) hasCode = true
+  })
+  if (hasCode) out.push(sql.slice(start).trim())
+  return out
+}
+
+/** Returns PostgreSQL text with each comment replaced by a space */
+export function stripPgComments(sql: string): string {
+  const parts: string[] = []
+  let last = 0
+  scanPgSql(sql, (part, from, to) => {
+    if (part !== 'comment') return
+    parts.push(sql.slice(last, from), ' ')
+    last = to
+  })
+  parts.push(sql.slice(last))
+  return parts.join('')
+}
+
+/**
+ * Walks PostgreSQL text and reports each comment, each quoted part and each other character.
+ * Quoted parts are strings, quoted names and $$ bodies.
+ */
+function scanPgSql(sql: string, visit: (part: 'comment' | 'quoted' | 'code', from: number, to: number) => void): void {
   let i = 0
   while (i < sql.length) {
+    const from = i
     const ch = sql[i]
     const next = sql[i + 1]
     if (ch === '-' && next === '-') {
       const end = sql.indexOf('\n', i)
       i = end === -1 ? sql.length : end
+      visit('comment', from, i)
       continue
     }
     if (ch === '/' && next === '*') {
@@ -195,20 +229,14 @@ export function splitPgSql(sql: string): string[] {
           i++
         }
       }
+      visit('comment', from, i)
       continue
     }
-    if (ch === ';') {
-      if (hasCode) out.push(sql.slice(start, i).trim())
-      start = i + 1
-      hasCode = false
-      i++
-      continue
-    }
-    if (!/\s/.test(ch)) hasCode = true
     const prev = sql[i - 1] ?? ''
     if (ch === "'" || ch === '"') {
       const escapes = ch === "'" && (prev === 'e' || prev === 'E') && !/[\w$]/.test(sql[i - 2] ?? '')
       i = skipQuoted(sql, i, escapes)
+      visit('quoted', from, i)
       continue
     }
     // $tag$ or $$. $1 is a parameter, and a$b$ is a name.
@@ -216,12 +244,12 @@ export function splitPgSql(sql: string): string[] {
     if (tag) {
       const end = sql.indexOf(tag[0], i + tag[0].length)
       i = end === -1 ? sql.length : end + tag[0].length
+      visit('quoted', from, i)
       continue
     }
     i++
+    visit('code', from, i)
   }
-  if (hasCode) out.push(sql.slice(start).trim())
-  return out
 }
 
 /** Returns the index after the closing quote. A doubled quote ('') is part of the string. */

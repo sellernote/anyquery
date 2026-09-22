@@ -1,7 +1,9 @@
 import { useEffect, useMemo, useRef, useState } from 'react'
-import { PAGE_SIZE, type DownloadFormat } from '@shared/types'
-import { useStore, type ResultState } from '../store'
+import { PAGE_SIZE, type DownloadFormat, type EditTarget } from '@shared/types'
+import { plural } from '@shared/format'
+import type { ResultState } from '../store'
 import { api } from '../api'
+import { cellKey, editedValue } from '../edits'
 import { JsonViewer } from './Editor'
 
 export function formatCell(value: unknown): string {
@@ -35,13 +37,21 @@ function toTsv(columns: string[], rows: unknown[][]): string {
 export function ResultView({
   results,
   running,
+  saving,
   onPage,
-  onDownload
+  onDownload,
+  onOpenCell,
+  onSave,
+  onDiscard
 }: {
   results: ResultState[]
   running: boolean
+  saving: boolean
   onPage: (index: number, page: number) => void
   onDownload: (index: number, format: DownloadFormat) => Promise<boolean>
+  onOpenCell: (index: number, page: number, row: number, column: number) => void
+  onSave: (index: number) => void
+  onDiscard: (index: number) => void
 }) {
   // Show the failed result first if there is one, otherwise the last result
   const [index, setIndex] = useState(() => {
@@ -79,8 +89,12 @@ export function ResultView({
         key={index}
         result={result}
         running={running}
+        saving={saving}
         onPage={(page) => onPage(index, page)}
         onDownload={(format) => onDownload(index, format)}
+        onOpenCell={(page, row, column) => onOpenCell(index, page, row, column)}
+        onSave={() => onSave(index)}
+        onDiscard={() => onDiscard(index)}
       />
     </div>
   )
@@ -89,13 +103,21 @@ export function ResultView({
 function SingleResult({
   result,
   running,
+  saving,
   onPage,
-  onDownload
+  onDownload,
+  onOpenCell,
+  onSave,
+  onDiscard
 }: {
   result: ResultState
   running: boolean
+  saving: boolean
   onPage: (page: number) => void
   onDownload: (format: DownloadFormat) => Promise<boolean>
+  onOpenCell: (page: number, row: number, column: number) => void
+  onSave: () => void
+  onDiscard: () => void
 }) {
   const { rows, json } = result.pages[result.page]
   const offset = result.pages.slice(0, result.page).reduce((n, p) => n + p.rows.length, 0)
@@ -104,6 +126,7 @@ function SingleResult({
   const [mode, setMode] = useState<'table' | 'json'>(hasTable ? 'table' : 'json')
   const [copied, setCopied] = useState(false)
   const [saved, setSaved] = useState(false)
+  const editCount = Object.keys(result.edits ?? {}).length
 
   async function download() {
     // Start with the format of the current view. The save dialog can switch it.
@@ -130,8 +153,29 @@ function SingleResult({
         {result.pageError && <span className="error-text">{result.pageError}</span>}
         {result.pageNote && <span className="warn">{result.pageNote}</span>}
         {running && <span className="muted">Running again...</span>}
+        {result.edit && !result.error && mode === 'table' && (
+          <span className="muted" title="Double-click a cell to edit it. Changes are saved when you click Save.">
+            Editable: {result.edit.name}
+          </span>
+        )}
+        {result.editNote && <span>{result.editNote}</span>}
         <span className="spacer" />
-        <Pager result={result} offset={offset} running={running} onPage={onPage} />
+        {editCount > 0 && (
+          <>
+            <span className="warn">{plural(editCount, 'unsaved change')}</span>
+            <button className="small" onClick={onDiscard} disabled={saving}>
+              Discard
+            </button>
+            <button
+              className="small primary"
+              onClick={onSave}
+              disabled={saving || running || result.loading || result.downloading}
+            >
+              {saving ? 'Saving...' : 'Save'}
+            </button>
+          </>
+        )}
+        <Pager result={result} offset={offset} running={running || saving} onPage={onPage} />
         {hasTable && hasJson && (
           <div className="segmented">
             <button className={mode === 'table' ? 'active' : ''} onClick={() => setMode('table')}>
@@ -151,7 +195,7 @@ function SingleResult({
           <button
             className="small"
             onClick={download}
-            disabled={running || result.loading || result.downloading}
+            disabled={running || saving || result.loading || result.downloading}
             title="Save every row as CSV or JSON, including pages not read yet"
           >
             {result.downloading ? 'Downloading...' : saved ? 'Saved' : 'Download'}
@@ -165,8 +209,17 @@ function SingleResult({
             <JsonViewer value={toJsonText(json)} />
           </div>
         )}
+        {result.editError && <pre className="error-box">{result.editError}</pre>}
         {!result.error && mode === 'table' && hasTable && (
-          <DataGrid columns={result.columns!} rows={rows} offset={offset} />
+          <DataGrid
+            columns={result.columns!}
+            rows={rows}
+            offset={offset}
+            page={result.page}
+            edit={result.edit}
+            edits={result.edits}
+            onOpen={(row, column) => onOpenCell(result.page, row, column)}
+          />
         )}
         {!result.error && (mode === 'json' || !hasTable) && hasJson && <JsonViewer value={toJsonText(json)} />}
       </div>
@@ -209,19 +262,37 @@ function Pager({
   )
 }
 
-function DataGrid({ columns, rows, offset }: { columns: string[]; rows: unknown[][]; offset: number }) {
-  const setPreview = useStore((s) => s.setPreview)
+function DataGrid({
+  columns,
+  rows,
+  offset,
+  page,
+  edit,
+  edits,
+  onOpen
+}: {
+  columns: string[]
+  rows: unknown[][]
+  offset: number
+  page: number
+  edit?: EditTarget
+  edits?: Record<string, string | null>
+  /** row is the index in rows, not the sorted position */
+  onOpen: (row: number, column: number) => void
+}) {
   const [sort, setSort] = useState<{ col: number; dir: 1 | -1 }>()
   const wrapRef = useRef<HTMLDivElement>(null)
 
-  // Scroll to the top when the page changes
+  // Scroll to the top when the page changes. Saving edits replaces rows, but keeps the scroll.
   useEffect(() => {
     if (wrapRef.current) wrapRef.current.scrollTop = 0
-  }, [rows])
+  }, [page])
 
-  const sorted = useMemo(() => {
-    if (!sort) return rows
-    return [...rows].sort((a, b) => compare(a[sort.col], b[sort.col]) * sort.dir)
+  // Row indexes in display order. Edits are kept by index, so they stay with their row when sorted.
+  const order = useMemo(() => {
+    const indexes = rows.map((_, i) => i)
+    if (!sort) return indexes
+    return indexes.sort((a, b) => compare(rows[a][sort.col], rows[b][sort.col]) * sort.dir)
   }, [rows, sort])
 
   function toggleSort(col: number) {
@@ -237,7 +308,11 @@ function DataGrid({ columns, rows, offset }: { columns: string[]; rows: unknown[
           <tr>
             <th className="rownum">#</th>
             {columns.map((c, i) => (
-              <th key={i} onClick={() => toggleSort(i)} title="Click to sort (this page only)">
+              <th
+                key={i}
+                onClick={() => toggleSort(i)}
+                title={`Click to sort (this page only)${edit?.columns[i] ? '. Double-click a cell to edit it.' : ''}`}
+              >
                 {c}
                 {sort?.col === i && <span className="sort">{sort.dir === 1 ? ' ▲' : ' ▼'}</span>}
               </th>
@@ -245,17 +320,20 @@ function DataGrid({ columns, rows, offset }: { columns: string[]; rows: unknown[
           </tr>
         </thead>
         <tbody>
-          {sorted.map((row, r) => (
+          {order.map((r, position) => (
             <tr key={r}>
-              <td className="rownum">{offset + r + 1}</td>
-              {columns.map((c, i) => {
-                const v = row[i]
+              <td className="rownum">{offset + position + 1}</td>
+              {columns.map((_, i) => {
+                const key = cellKey(page, r, i)
+                const edited = !!edits && key in edits
+                const v = edited ? editedValue(edits[key], rows[r][i]) : rows[r][i]
                 const text = formatCell(v)
+                const kind = v === null ? 'null' : typeof v === 'object' ? 'object' : typeof v === 'number' ? 'number' : ''
                 return (
                   <td
                     key={i}
-                    className={v === null ? 'null' : typeof v === 'object' ? 'object' : typeof v === 'number' ? 'number' : ''}
-                    onDoubleClick={() => setPreview({ title: c, value: v })}
+                    className={edited ? `${kind} edited` : kind}
+                    onDoubleClick={() => onOpen(r, i)}
                     title={text.length > 60 ? text.slice(0, 1000) : undefined}
                   >
                     {text.length > 300 ? text.slice(0, 300) + '...' : text}

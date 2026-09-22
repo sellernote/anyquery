@@ -17,6 +17,7 @@ Built with React and TypeScript. Needs VS Code 1.101 or later.
 - Browse databases, schemas, tables, collections, keys and indices in a tree
 - Syntax highlighting, plus table name autocomplete for MySQL
 - View results as a table or as JSON, 200 rows per page
+- Edit cells in MySQL, PostgreSQL and OpenSearch results, then save or discard the changes
 - Download every row of a result as CSV or JSON
 - Passwords are encrypted with the OS keychain
 
@@ -48,7 +49,7 @@ Open the folder in VS Code and press `F5`. It builds the extension and opens a n
 3. Expand a connection to see its databases and tables (or collections, keys, indices). Click a table to query it in a new tab.
 4. Press `Cmd+Enter` (`Ctrl+Enter` on Windows and Linux) to run. If text is selected, only the selection runs.
 5. Results show 200 rows per page. Use `Previous` and `Next` above the results to change pages.
-6. Double-click a cell to see its full value. Click a column header to sort. Sorting and copying apply to the current page only.
+6. Double-click a cell to see its full value, or to edit it if the result can be edited (see [Editing results](#editing-results)). Click a column header to sort. Sorting and copying apply to the current page only.
 7. Click `Download` to save every row as CSV or JSON. Pages not read yet are read from the database straight into the file. After that, the tab cannot page further until you run the query again.
 
 ### Query syntax
@@ -91,6 +92,37 @@ PostgreSQL notes:
 - Dates and times are shown as the text the server sends, not converted to your time zone.
 - If you run several statements, only the last one can be paged. The others show their first page only.
 
+### Editing results
+
+A result can be edited when AnyQuery can tell which row each cell belongs to. It then shows `Editable: <table>` above the result.
+
+1. Double-click a cell, change the value and click `Apply` (`Cmd+Enter`). `Set NULL` sets NULL. Changed cells are highlighted.
+2. Click `Save` to save every change, or `Discard` to drop them. Running the query again or closing the tab asks first.
+
+Type values as they are shown. For JSON and arrays, type JSON.
+
+| Database | Editable when | How changes are saved |
+|---|---|---|
+| MySQL, PostgreSQL | The columns come from one table, and its primary key is in the result. A join works if you select columns from only one table. | One `UPDATE ... WHERE <primary key>` per row, in one transaction. If one fails, nothing is saved. |
+| OpenSearch | `_search` results whose hits have `_source` | One update per document by `_index` and `_id`, with `refresh=wait_for`. There are no transactions, so some documents can fail while others are saved. Failed ones stay unsaved. |
+
+These cannot be edited:
+
+- Primary key columns, `_index` and `_id`
+- Expressions, generated columns, binary columns (shown as hex), and PostgreSQL `point` and `circle`
+- Results from views, tables without a primary key, `UNION` and self joins
+- PostgreSQL results where the table name appears more than once in the query, or the query uses `WITH`. PostgreSQL does not say which alias a column came from, so these could be self joins.
+- OpenSearch documents with custom routing, and fields from `fields` or `docvalue_fields`
+
+MySQL and PostgreSQL notes:
+
+- Changes are saved on the tab's connection, like an `UPDATE` you run in the tab.
+- If the tab has an open transaction (after `BEGIN`, or with `autocommit` off in MySQL), the changes join it and are not committed. Run `COMMIT` or `ROLLBACK` yourself.
+- If the result still has rows to read (over 5,000 rows), saving closes it, so it cannot page further.
+- Each row must still exist with the same primary key. Otherwise nothing is saved.
+
+After saving, only the edited cells change. Run the query again to see other values the database changed, such as `ON UPDATE` timestamps. OpenSearch search results always show `_index`, since it is needed to find each document.
+
 ### Where data is stored
 
 Connections are saved in VS Code's extension storage (`globalState`). Passwords are saved separately in VS Code's `SecretStorage`, which uses the OS keychain.
@@ -104,6 +136,7 @@ Not supported yet:
 - AWS SigV4 auth for OpenSearch (basic auth works)
 - Redis Cluster and Sentinel
 - Saving tabs and editor content (they are lost when the panel closes)
+- Editing MongoDB and Redis results
 
 ## Contributing
 
@@ -129,7 +162,7 @@ All database access happens in the extension. The UI runs in a webview and talks
 
 ### Adding a database
 
-1. Implement the `Driver` interface (`drivers/types.ts`) in `src/extension/drivers/`. If a result has more than one page, return only the first page with a `cursor`. For results already in memory, use `paginate()` (`drivers/util.ts`).
+1. Implement the `Driver` interface (`drivers/types.ts`) in `src/extension/drivers/`. If a result has more than one page, return only the first page with a `cursor`. For results already in memory, use `paginate()` (`drivers/util.ts`). To support editing, set `edit` on results and implement `saveEdits`. SQL databases can use `drivers/sqlEdits.ts`.
 2. Register it in `createDriver` in `drivers/index.ts`.
 3. Add it to `DbType`, `DEFAULT_PORTS` and `DB_LABELS` in `shared/types.ts`.
 4. Add syntax highlighting in `languageFor` in `webview/components/Editor.tsx`.

@@ -1,16 +1,27 @@
-import { Client, Pool, types, type ClientConfig, type CustomTypesConfig, type QueryResult } from 'pg'
+import {
+  Client,
+  Pool,
+  types,
+  type ClientConfig,
+  type CustomTypesConfig,
+  type FieldDef,
+  type QueryResult
+} from 'pg'
 import PgCursor from 'pg-cursor'
 import {
   PAGE_SIZE,
   type ConnectionConfig,
+  type EditRequest,
+  type EditTarget,
   type ExecuteContext,
   type OpenQuery,
   type ResultPage,
   type TreeNode
 } from '@shared/types'
 import { plural } from '@shared/format'
-import type { Cursor, Driver, DriverResult, ResultBody } from './types'
-import { runAll, splitPgSql, timed, toPlain, withTimeout } from './util'
+import type { Cursor, Driver, DriverResult, EditOutcome, ResultBody } from './types'
+import { runAll, splitPgSql, stripPgComments, timed, toPlain, withTimeout } from './util'
+import { saveSqlEdits, sqlEditTarget } from './sqlEdits'
 
 interface Session {
   client: Client
@@ -38,6 +49,9 @@ const TEXT_TYPES = new Set([
   1082, 1083, 1114, 1184, 1186, 1266, // date, time, timestamp, timestamptz, interval, timetz
   1182, 1183, 1115, 1185, 1187, 1270 // arrays of the above
 ])
+
+/** bytea is shown as hex, and point and circle as objects, so the text shown cannot be saved back. Arrays of them too. */
+const UNEDITABLE_TYPES = new Set([17, 1001, 600, 1017, 718, 719])
 
 const typeParsers = {
   getTypeParser: (oid: number, format?: 'text' | 'binary') =>
@@ -223,7 +237,8 @@ export class PostgresDriver implements Driver {
   }
 
   async execute(query: string, ctx: ExecuteContext): Promise<DriverResult[]> {
-    const client = await this.session(ctx.sessionId, ctx.database || this.defaultDatabase)
+    const database = ctx.database || this.defaultDatabase
+    const client = await this.session(ctx.sessionId, database)
     let last: DriverResult | undefined
     return runAll(splitPgSql(query), async (sql) => {
       // An open cursor from the previous statement ties up the connection, so close it. Only the last statement can page.
@@ -232,12 +247,102 @@ export class PostgresDriver implements Driver {
         last.cursor = undefined
         last.truncated = true
       }
-      last = await timed(sql, () => {
-        const cursor = client.query(new PgCursor<unknown[]>(sql, undefined, { rowMode: 'array', types: typeParsers }))
-        return new PostgresCursor(cursor, () => this.drop(ctx.sessionId, client)).first()
+      let fields: FieldDef[] | undefined
+      last = await timed(sql, async () => {
+        const pg = client.query(new PgCursor<unknown[]>(sql, undefined, { rowMode: 'array', types: typeParsers }))
+        const cursor = new PostgresCursor(pg, () => this.drop(ctx.sessionId, client))
+        const body = await cursor.first()
+        fields = cursor.fields
+        return body
       })
+      if (fields && last.columns) last.edit = await this.editTarget(database, sql, fields)
       return last
     })
+  }
+
+  /** Results from one table with its primary key can be edited */
+  private async editTarget(database: string, sql: string, fields: FieldDef[]): Promise<EditTarget | undefined> {
+    const tables = new Set(fields.map((f) => f.tableID).filter(Boolean))
+    if (tables.size !== 1) return
+    const [oid] = tables
+    try {
+      // Only tables. Views and materialized views have no primary key.
+      // Generated columns cannot be set. information_schema has is_generated on versions before 12 too.
+      const rows = await this.rows(
+        database,
+        `SELECT n.nspname, c.relname, a.attnum, a.attname, COALESCE(a.attnum = ANY (i.indkey), false),
+           COALESCE(ic.is_generated = 'ALWAYS', false)
+         FROM pg_class c
+         JOIN pg_namespace n ON n.oid = c.relnamespace
+         JOIN pg_attribute a ON a.attrelid = c.oid AND a.attnum > 0 AND NOT a.attisdropped
+         LEFT JOIN pg_index i ON i.indrelid = c.oid AND i.indisprimary
+         LEFT JOIN information_schema.columns ic
+           ON ic.table_schema = n.nspname AND ic.table_name = c.relname AND ic.column_name = a.attname
+         WHERE c.oid = $1 AND c.relkind IN ('r', 'p')`,
+        [oid]
+      )
+      if (rows.length === 0) return
+      const [schema, table] = [String(rows[0][0]), String(rows[0][1])]
+      if (!readsTableOnce(sql, table)) return
+      const names = new Map(rows.filter((r) => !r[5]).map((r) => [Number(r[2]), String(r[3])]))
+      return sqlEditTarget(
+        `${schema}.${table}`,
+        [database, schema, table],
+        fields.map((f) => (f.tableID === oid ? (names.get(f.columnID) ?? null) : null)),
+        rows.filter((r) => r[4]).map((r) => String(r[3])),
+        (i) => !UNEDITABLE_TYPES.has(fields[i].dataTypeID)
+      )
+    } catch {
+      return
+    }
+  }
+
+  async saveEdits(sessionId: string, req: EditRequest): Promise<EditOutcome> {
+    const [database, schema, table] = req.target.path
+    const client = await this.session(sessionId, database)
+    const name = `${quotePgId(schema)}.${quotePgId(table)}`
+    // Arrays are shown as JSON, like [1, 2]. JSON text typed into an array column is sent as an array.
+    const { rows } = await client.query({
+      text: `SELECT a.attname FROM pg_attribute a JOIN pg_type t ON t.oid = a.atttypid
+             WHERE a.attrelid = $1::regclass AND a.attnum > 0 AND t.typcategory = 'A'`,
+      values: [name],
+      rowMode: 'array'
+    })
+    const arrays = new Set(rows.map((r) => String(r[0])))
+    return saveSqlEdits(
+      {
+        inTransaction: client.getTransactionStatus() !== 'I',
+        run: async (text, values) => (await client.query(text, values)).rowCount ?? 0
+      },
+      {
+        table: name,
+        quote: quotePgId,
+        param: (n) => `$${n}`,
+        value: (column, text) => (arrays.has(column) ? toArray(text) : text)
+      },
+      req
+    )
+  }
+}
+
+/**
+ * PostgreSQL does not say which alias a column came from, so a self join looks like a single table.
+ * Allow editing only when the table name appears once and no WITH query can read the table again.
+ */
+function readsTableOnce(sql: string, table: string): boolean {
+  const text = stripPgComments(sql)
+  const name = new RegExp(`(?<![\\p{L}\\p{N}_$])${table.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}(?![\\p{L}\\p{N}_$])`, 'giu')
+  return (text.match(name)?.length ?? 0) === 1 && !/(?<![\p{L}\p{N}_$])with(?![\p{L}\p{N}_$])(?!\s+time\s+zone)/iu.test(text)
+}
+
+/** Reads JSON array text as an array. Other text, such as {1,2}, is sent as is. */
+function toArray(text: string): unknown {
+  if (!text.trim().startsWith('[')) return text
+  try {
+    const value = JSON.parse(text)
+    return Array.isArray(value) ? value : text
+  } catch {
+    return text
   }
 }
 
@@ -253,6 +358,7 @@ const RELKIND_DETAIL: Record<string, string> = {
  * Until every row is read, the connection cannot run other queries.
  */
 class PostgresCursor implements Cursor {
+  fields?: FieldDef[]
   private buffer: unknown[][] = []
   private ended = false
   private expired = false
@@ -268,6 +374,7 @@ class PostgresCursor implements Cursor {
   async first(): Promise<ResultBody> {
     const { rows, hasMore, result } = await this.take()
     if (!result?.fields.length) return { message: describeCommand(result) }
+    this.fields = result.fields
     return {
       columns: result.fields.map((f) => f.name),
       rows,
@@ -279,6 +386,10 @@ class PostgresCursor implements Cursor {
   async next(): Promise<ResultPage> {
     const { rows, hasMore } = await this.take()
     return { rows, hasMore }
+  }
+
+  busy(): boolean {
+    return !this.ended
   }
 
   close(): Promise<void> {

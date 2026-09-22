@@ -53,6 +53,17 @@ const api: Api = {
     )
   },
   fetchPage: (id, cursorId) => cursors.next(id, cursorId),
+  saveEdits: async (id, sessionId, req) => {
+    const driver = await drivers.get(id)
+    if (!driver.saveEdits) throw new Error('This database does not support editing')
+    // Edits are saved on the tab's connection, which an unfinished result ties up
+    const closedCursors = await cursors.releaseSession(id, sessionId)
+    try {
+      return { ...(await driver.saveEdits(sessionId, req)), closedCursors }
+    } catch (err) {
+      return { saved: [], error: errorMessage(err), closedCursors }
+    }
+  },
   closeSession: async (id, sessionId) => {
     await cursors.closeSession(id, sessionId)
     const driver = await drivers.get(id).catch(() => null)

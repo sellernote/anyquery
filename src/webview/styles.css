@@ -46,7 +46,8 @@ body {
 
 button,
 input,
-select {
+select,
+textarea {
   font: inherit;
   color: inherit;
 }
@@ -643,6 +644,10 @@ input:disabled {
 .grid tbody tr:hover td {
   background: rgba(255, 255, 255, 0.03);
 }
+.grid td.edited,
+.grid tbody tr:hover td.edited {
+  background: rgba(229, 192, 123, 0.18);
+}
 .grid td.null {
   color: var(--muted);
   font-style: italic;
@@ -807,6 +812,21 @@ input:disabled {
   border: 1px solid var(--border);
   border-radius: 6px;
   overflow: auto;
+}
+.value-body textarea {
+  display: block;
+  width: 100%;
+  height: 100%;
+  margin: 0;
+  padding: 10px 12px;
+  border: none;
+  background: var(--bg-input);
+  resize: none;
+  outline: none;
+  font-family: var(--mono);
+  font-size: 12px;
+  line-height: 1.5;
+  user-select: text;
 }
 .value-body pre {
   margin: 0;

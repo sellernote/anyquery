@@ -1,7 +1,8 @@
 import { Client } from '@opensearch-project/opensearch'
-import type { ConnectionConfig, OpenQuery, TreeNode } from '@shared/types'
+import type { ConnectionConfig, EditRequest, EditTarget, OpenQuery, TreeNode } from '@shared/types'
 import { plural } from '@shared/format'
-import type { Cursor, Driver, DriverResult, ResultBody } from './types'
+import { parseEdit } from '@shared/edit'
+import type { Cursor, Driver, DriverResult, EditOutcome, ResultBody } from './types'
 import { errorMessage, objectsToTable, paginate, runAll, timed } from './util'
 
 const REQUEST_LINE = /^\s*(GET|POST|PUT|DELETE|HEAD|PATCH)\s+(\S+)\s*$/i
@@ -155,6 +156,8 @@ export class OpenSearchDriver implements Driver {
     try {
       const res = await this.os.transport.request(params)
       const result = formatResponse(res.body, res.statusCode ?? 200)
+      const search = /^(?:\/(.+?))?\/_search$/.exec(url.pathname)
+      if (search && result.columns) result.edit = hitsEditTarget(decodeURIComponent(search[1] ?? '_all'), res.body, result.columns)
       return { ...result, cursor: result.cursor ?? this.searchCursor(original, res.body, result.columns) }
     } catch (err) {
       const meta = (err as { meta?: { body?: unknown; statusCode?: number } }).meta
@@ -164,6 +167,44 @@ export class OpenSearchDriver implements Driver {
       }
       throw err
     }
+  }
+
+  /**
+   * Saves each document with an update by _index and _id. There are no transactions,
+   * so some documents can be saved while others fail.
+   */
+  async saveEdits(_sessionId: string, { target, rows }: EditRequest): Promise<EditOutcome> {
+    // Read every value first, so nothing is sent if one is not valid
+    const docs = rows.map(({ key: [index, id], changes }) => {
+      const set: Record<string, unknown> = {}
+      for (const { column, value, old } of changes) {
+        const field = target.columns[column]
+        if (!field) throw new Error('This column cannot be edited.')
+        try {
+          set[field] = value === null ? null : parseEdit(value, old)
+        } catch (err) {
+          throw new Error(`${field} (_id ${id}): ${errorMessage(err)}\nNothing was saved.`)
+        }
+      }
+      return { index: String(index), id: String(id), set }
+    })
+    const { body } = await this.os.bulk({
+      // Wait until the changes are searchable, so running the query again shows them
+      refresh: 'wait_for',
+      body: docs.flatMap((d) => [
+        { update: { _index: d.index, _id: d.id } },
+        // A script replaces each field whole. A partial doc would merge objects, so removed keys would stay.
+        { script: { lang: 'painless', source: 'ctx._source.putAll(params.set)', params: { set: d.set } } }
+      ])
+    })
+    const items = body.items.map((item) => Object.values(item)[0])
+    const saved = items.flatMap((item, i) => (item.status < 300 ? [i] : []))
+    const failed = items.findIndex((item) => item.status >= 300)
+    if (failed < 0) return { saved, message: `Saved ${plural(saved.length, 'document')}` }
+    const reason = describeError({ error: items[failed].error })
+    const error = `${plural(rows.length - saved.length, 'document')} failed. _id ${docs[failed].id}: ${reason}`
+    if (saved.length === 0) throw new Error(`${error}\nNothing was saved.`)
+    return { saved, message: `Saved ${saved.length} of ${plural(rows.length, 'document')}`, error }
   }
 
   /**
@@ -229,6 +270,7 @@ interface Hit {
   _index: string
   _id: string
   _score?: number | null
+  _routing?: string
   _source?: Record<string, unknown>
   fields?: Record<string, unknown>
 }
@@ -237,15 +279,38 @@ interface Hit {
 function hitsTable(body: unknown, known?: string[]): { columns: string[]; rows: unknown[][] } | undefined {
   const hits = (body as { hits?: { hits?: Hit[] } }).hits?.hits
   if (!Array.isArray(hits)) return undefined
-  const multiIndex = new Set(hits.map((h) => h._index)).size > 1
+  // _index and _id find the document when saving edits
   const docs = hits.map((h) => ({
-    ...(multiIndex ? { _index: h._index } : {}),
+    _index: h._index,
     _id: h._id,
     ...(h._score != null ? { _score: h._score } : {}),
     ...h._source,
     ...h.fields
   }))
   return objectsToTable(docs, known)
+}
+
+/**
+ * Fields from _source can be edited. Documents with custom routing are left out,
+ * since an update needs the routing to find them.
+ */
+function hitsEditTarget(name: string, body: unknown, columns: string[]): EditTarget | undefined {
+  const hits = (body as { hits: { hits: Hit[] } }).hits.hits
+  if (hits.length === 0 || hits.some((h) => !h._source || h._routing != null)) return
+  const source = new Set(hits.flatMap((h) => Object.keys(h._source!)))
+  const fields = new Set(hits.flatMap((h) => Object.keys(h.fields ?? {})))
+  const meta = new Set(['_index', '_id', '_score'])
+  const edit = columns.map((c) => (source.has(c) && !fields.has(c) && !meta.has(c) ? c : null))
+  if (!edit.some(Boolean)) return
+  return {
+    name,
+    path: [],
+    keys: [
+      { column: columns.indexOf('_index'), name: '_index' },
+      { column: columns.indexOf('_id'), name: '_id' }
+    ],
+    columns: edit
+  }
 }
 
 function formatResponse(body: unknown, status: number): ResultBody {
