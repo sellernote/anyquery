@@ -70,7 +70,7 @@ The next page is read from the database when you click `Next`. After you rerun t
 | Database | How the next page is read |
 |---|---|
 | MySQL | The result is streamed and paused between pages. See the notes below. |
-| PostgreSQL | A server-side cursor reads one page at a time. See the notes below. |
+| PostgreSQL | Up to 5,000 rows are read ahead, then a server-side cursor reads the rest. See the notes below. |
 | MongoDB | The cursor stays open. The server closes cursors that are idle for 10 minutes. |
 | OpenSearch | For `_search`, the same request is sent again with a larger `from`. The page size is the request's `size` (default 10). The request fails once `from + size` goes over `index.max_result_window` (default 10,000). Page `scroll` and `search_after` requests yourself. |
 | Redis and others | The full reply is kept in the extension and sent one page at a time. |
@@ -86,7 +86,8 @@ MySQL notes:
 PostgreSQL notes:
 
 - A connection opens only one database. Picking another database in a tab opens a new connection, so variables and transactions from before are lost. Without a default database, `postgres` is used.
-- While a result has more pages, its cursor stays open. The tab's connection cannot run other queries, and the cursor's transaction keeps its locks, so for example `ALTER TABLE` on that table waits. The result is closed if no page is read for 5 minutes.
+- Up to 5,000 rows are read ahead. Smaller results finish right away.
+- For larger results, the cursor stays open until every row is read. The tab's connection cannot run other queries, and the cursor's transaction keeps its locks, so for example `ALTER TABLE` on that table waits. The result is closed if no page is read for 5 minutes.
 - Dates and times are shown as the text the server sends, not converted to your time zone.
 - If you run several statements, only the last one can be paged. The others show their first page only.
 

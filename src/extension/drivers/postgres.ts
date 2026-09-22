@@ -21,6 +21,9 @@ interface Session {
 /** Sessions idle longer than this are pinged before running a query */
 const IDLE_CHECK_MS = 30_000
 
+/** Rows read ahead of the UI. Smaller results finish right away and do not hold the connection. */
+const READ_AHEAD_ROWS = 5_000
+
 /** Close the cursor if the next page is not read within this time. An open cursor keeps its transaction and locks. */
 const CURSOR_IDLE_MS = 5 * 60_000
 
@@ -246,8 +249,8 @@ const RELKIND_DETAIL: Record<string, string> = {
 }
 
 /**
- * Reads a server-side cursor one page at a time.
- * While it is open, the connection cannot run other queries.
+ * Reads a server-side cursor READ_AHEAD_ROWS rows at a time and hands them out page by page.
+ * Until every row is read, the connection cannot run other queries.
  */
 class PostgresCursor implements Cursor {
   private buffer: unknown[][] = []
@@ -286,23 +289,23 @@ class PostgresCursor implements Cursor {
     return this.closed
   }
 
-  /** Takes one page. Reads one extra row to tell whether more follow. */
+  /** Takes one page. Keeps one extra row buffered to tell whether more follow. */
   private async take(): Promise<{ rows: unknown[][]; hasMore: boolean; result?: QueryResult }> {
     clearTimeout(this.idleTimer)
     if (this.expired) throw new Error('The result was closed because no page was read for 5 minutes. Run the query again.')
     if (this.closed) throw new Error('This result is already closed. Run the query again.')
     let result: QueryResult | undefined
-    if (!this.ended) {
-      const want = PAGE_SIZE + 1 - this.buffer.length
-      const read = await this.read(want)
+    if (!this.ended && this.buffer.length <= PAGE_SIZE) {
+      const read = await this.read(READ_AHEAD_ROWS)
       result = read.result
       this.buffer.push(...read.rows.map((row) => row.map(toPlain)))
-      // The server ends the cursor once it runs out of rows
-      if (read.rows.length < want) this.ended = true
+      // The server ends the cursor once it runs out of rows, and the connection is free again
+      if (read.rows.length < READ_AHEAD_ROWS) this.ended = true
     }
     const rows = this.buffer.splice(0, PAGE_SIZE)
     const hasMore = this.buffer.length > 0
-    if (hasMore) {
+    // Rows already read stay in memory, so only an unfinished cursor expires
+    if (hasMore && !this.ended) {
       this.idleTimer = setTimeout(() => {
         this.expired = true
         this.close()
