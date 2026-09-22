@@ -139,6 +139,19 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
   store = await ConnectionStore.load(context)
   drivers = new DriverManager((id) => store.get(id))
   context.subscriptions.push(vscode.commands.registerCommand('anyquery.open', () => openPanel(context)))
+
+  // The activity bar icon opens the panel. The view has no items, so it shows the welcome button from package.json.
+  const view = vscode.window.createTreeView<vscode.TreeItem>('anyquery.home', {
+    treeDataProvider: { getTreeItem: (item) => item, getChildren: () => [] }
+  })
+  // Clicking the icon may be what activated the extension, so the view can already be visible
+  if (view.visible) openPanel(context)
+  context.subscriptions.push(
+    view,
+    view.onDidChangeVisibility((e) => {
+      if (e.visible) openPanel(context)
+    })
+  )
 }
 
 export function deactivate(): Promise<void> {

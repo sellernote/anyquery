@@ -1,7 +1,7 @@
 {
   "name": "anyquery",
   "displayName": "AnyQuery",
-  "version": "0.1.1",
+  "version": "0.1.2",
   "description": "Query MySQL, PostgreSQL, MongoDB, Redis and OpenSearch in VS Code",
   "publisher": "seller-note",
   "author": "Wonsug Jung (https://github.com/gardenstone2)",
@@ -33,6 +33,29 @@
         "command": "anyquery.open",
         "title": "Open",
         "category": "AnyQuery"
+      }
+    ],
+    "viewsContainers": {
+      "activitybar": [
+        {
+          "id": "anyquery",
+          "title": "AnyQuery",
+          "icon": "images/activitybar.svg"
+        }
+      ]
+    },
+    "views": {
+      "anyquery": [
+        {
+          "id": "anyquery.home",
+          "name": "AnyQuery"
+        }
+      ]
+    },
+    "viewsWelcome": [
+      {
+        "view": "anyquery.home",
+        "contents": "AnyQuery opens in an editor tab.\n[Open AnyQuery](command:anyquery.open)"
       }
     ]
   },

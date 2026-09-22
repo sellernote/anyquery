@@ -43,7 +43,7 @@ Open the folder in VS Code and press `F5`. It builds the extension and opens a n
 
 ## Usage
 
-1. Run `AnyQuery: Open` from the Command Palette (`Cmd+Shift+P`, or `Ctrl+Shift+P` on Windows and Linux).
+1. Click the AnyQuery icon in the Activity Bar, or run `AnyQuery: Open` from the Command Palette (`Cmd+Shift+P`, or `Ctrl+Shift+P` on Windows and Linux).
 2. Click `+` at the top left to add a connection. Click `Test connection` to check it first.
 3. Expand a connection to see its databases and tables (or collections, keys, indices). Click a table to query it in a new tab.
 4. Press `Cmd+Enter` (`Ctrl+Enter` on Windows and Linux) to run. If text is selected, only the selection runs.
