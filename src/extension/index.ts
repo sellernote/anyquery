@@ -151,18 +151,26 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
   drivers = new DriverManager((id) => store.get(id))
   context.subscriptions.push(vscode.commands.registerCommand('anyquery.open', () => openPanel(context)))
 
-  // The activity bar icon opens the panel. The view has no items, so it shows the welcome button from package.json.
+  // The activity bar icon opens the panel. VS Code needs a view behind the icon, but it only shows
+  // the welcome button from package.json, so the side bar is closed right away.
   const view = vscode.window.createTreeView<vscode.TreeItem>('anyquery.home', {
     treeDataProvider: { getTreeItem: (item) => item, getChildren: () => [] }
   })
   // Clicking the icon may be what activated the extension, so the view can already be visible
-  if (view.visible) openPanel(context)
+  if (view.visible) openFromActivityBar(context)
   context.subscriptions.push(
     view,
     view.onDidChangeVisibility((e) => {
-      if (e.visible) openPanel(context)
+      if (e.visible) openFromActivityBar(context)
     })
   )
+}
+
+async function openFromActivityBar(context: vscode.ExtensionContext): Promise<void> {
+  openPanel(context)
+  // Switch to Explorer first. Otherwise toggling the side bar (Cmd+B) would show this view and close it again.
+  await vscode.commands.executeCommand('workbench.view.explorer')
+  await vscode.commands.executeCommand('workbench.action.closeSidebar')
 }
 
 export function deactivate(): Promise<void> {
