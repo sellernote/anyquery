@@ -14,7 +14,7 @@ Built with React and TypeScript. Needs VS Code 1.101 or later.
 
 ## Features
 
-- Browse databases, schemas, tables, collections, keys and indices in a tree
+- Browse databases, schemas, tables, collections, keys and indices in a tree, and filter the expanded lists by name
 - Syntax highlighting, plus table and column name autocomplete for MySQL and PostgreSQL
 - View results as a table or as JSON, 200 rows per page
 - Edit cells in MySQL, PostgreSQL and OpenSearch results, then save or discard the changes

@@ -58,6 +58,8 @@ interface State {
   editing: ConnectionConfig | null | undefined
   /** Full view of a cell value. With cell set, the value can be edited. */
   preview: { title: string; value: unknown; detail?: string; cell?: CellRef } | undefined
+  /** Text typed in the sidebar filter */
+  treeFilter: string
 
   load(): Promise<void>
   saveConnection(config: ConnectionConfig): Promise<void>
@@ -136,6 +138,7 @@ export const useStore = create<State>((set, get) => ({
   activeTabId: undefined,
   editing: undefined,
   preview: undefined,
+  treeFilter: '',
 
   async load() {
     set({ connections: await api.listConnections() })

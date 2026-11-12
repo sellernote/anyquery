@@ -4,9 +4,28 @@ import { useStore } from '../store'
 import { Icon, kindIcon } from './Icon'
 import { api } from '../api'
 
+/**
+ * Only nodes that open a query (tables, collections, keys, indices) are filtered.
+ * Databases, schemas and columns always show, so a match stays reachable.
+ */
+function passes(node: TreeNode, filter: string): boolean {
+  return !filter || !node.openable || node.label.toLowerCase().includes(filter)
+}
+
+/** The sidebar filter, lowercased */
+const useFilter = () => useStore((s) => s.treeFilter.trim().toLowerCase())
+
+/** The note for a loaded list that shows nothing */
+function emptyNote(nodes: TreeNode[] | null, shown: TreeNode[] | undefined): string | undefined {
+  if (!nodes || shown?.length) return
+  return nodes.length === 0 ? 'Empty' : 'No matches'
+}
+
 export function Sidebar() {
   const connections = useStore((s) => s.connections)
   const setEditing = useStore((s) => s.setEditing)
+  const treeFilter = useStore((s) => s.treeFilter)
+  const setFilter = (treeFilter: string) => useStore.setState({ treeFilter })
 
   return (
     <aside className="sidebar">
@@ -16,6 +35,23 @@ export function Sidebar() {
           <Icon name="plus" />
         </button>
       </div>
+      {connections.length > 0 && (
+        <div className="tree-filter">
+          <input
+            value={treeFilter}
+            placeholder="Filter tables"
+            title="Filters tables, collections, keys and indices in the lists already expanded. Esc clears it."
+            spellCheck={false}
+            onChange={(e) => setFilter(e.target.value)}
+            onKeyDown={(e) => e.key === 'Escape' && setFilter('')}
+          />
+          {treeFilter && (
+            <button className="icon-button" title="Clear" onClick={() => setFilter('')}>
+              <Icon name="close" size={12} />
+            </button>
+          )}
+        </div>
+      )}
       <div className="conn-list">
         {connections.length === 0 && (
           <div className="empty-hint">
@@ -42,6 +78,9 @@ function ConnectionItem({ conn }: { conn: ConnectionConfig }) {
   const [error, setError] = useState<string>()
   /** Added to keys so the whole subtree re-renders on refresh */
   const [generation, setGeneration] = useState(0)
+  const filter = useFilter()
+  const shown = nodes?.filter((n) => passes(n, filter))
+  const note = emptyNote(nodes, shown)
 
   // Reset the tree when the settings change
   useEffect(() => {
@@ -133,7 +172,7 @@ function ConnectionItem({ conn }: { conn: ConnectionConfig }) {
           {loading && <div className="tree-note" style={{ paddingLeft: 28 }}>Loading...</div>}
           {error && <div className="tree-note error" style={{ paddingLeft: 28 }}>{error}</div>}
           {!loading &&
-            nodes?.map((n) => (
+            shown?.map((n) => (
               <TreeItem
                 key={`${generation}:${n.path.join('\u0000')}`}
                 connId={conn.id}
@@ -142,7 +181,7 @@ function ConnectionItem({ conn }: { conn: ConnectionConfig }) {
                 onOpen={openNode}
               />
             ))}
-          {!loading && nodes?.length === 0 && <div className="tree-note" style={{ paddingLeft: 28 }}>Empty</div>}
+          {!loading && note && <div className="tree-note" style={{ paddingLeft: 28 }}>{note}</div>}
         </div>
       )}
     </div>
@@ -161,6 +200,9 @@ function TreeItem({ connId, node, depth, onOpen }: TreeItemProps) {
   const [children, setChildren] = useState<TreeNode[] | null>(null)
   const [loading, setLoading] = useState(false)
   const [error, setError] = useState<string>()
+  const filter = useFilter()
+  const shown = children?.filter((n) => passes(n, filter))
+  const note = emptyNote(children, shown)
   const indent = 8 + depth * 14
 
   async function toggle() {
@@ -221,12 +263,10 @@ function TreeItem({ connId, node, depth, onOpen }: TreeItemProps) {
         <>
           {loading && <div className="tree-note" style={{ paddingLeft: indent + 32 }}>Loading...</div>}
           {error && <div className="tree-note error" style={{ paddingLeft: indent + 32 }}>{error}</div>}
-          {children?.map((c) => (
+          {shown?.map((c) => (
             <TreeItem key={c.path.join('\u0000')} connId={connId} node={c} depth={depth + 1} onOpen={onOpen} />
           ))}
-          {!loading && children?.length === 0 && (
-            <div className="tree-note" style={{ paddingLeft: indent + 32 }}>Empty</div>
-          )}
+          {!loading && note && <div className="tree-note" style={{ paddingLeft: indent + 32 }}>{note}</div>}
         </>
       )}
     </>
