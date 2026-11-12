@@ -140,7 +140,9 @@ Not supported yet:
 
 ## Contributing
 
-Issues and pull requests are welcome. Run `pnpm typecheck` before you open a pull request.
+Issues and pull requests are welcome. Run `pnpm typecheck` and `pnpm test` before you open a pull request. CI runs both on every pull request.
+
+Tests sit next to the code they test, as `*.test.ts`. They use Node's built-in test runner.
 
 ### Project structure
 

@@ -63,6 +63,7 @@
     "build": "node scripts/build.mjs",
     "watch": "node scripts/build.mjs --watch",
     "typecheck": "tsc --noEmit -p tsconfig.extension.json && tsc --noEmit -p tsconfig.webview.json",
+    "test": "node scripts/test.mjs",
     "vscode:prepublish": "node scripts/build.mjs --production",
     "package": "vsce package --no-dependencies",
     "install:package": "vsce package --no-dependencies --out out/anyquery.vsix && code --install-extension out/anyquery.vsix --force"

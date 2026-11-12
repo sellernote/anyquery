@@ -329,7 +329,7 @@ export class PostgresDriver implements Driver {
  * PostgreSQL does not say which alias a column came from, so a self join looks like a single table.
  * Allow editing only when the table name appears once and no WITH query can read the table again.
  */
-function readsTableOnce(sql: string, table: string): boolean {
+export function readsTableOnce(sql: string, table: string): boolean {
   const text = stripPgComments(sql)
   const name = new RegExp(`(?<![\\p{L}\\p{N}_$])${table.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}(?![\\p{L}\\p{N}_$])`, 'giu')
   return (text.match(name)?.length ?? 0) === 1 && !/(?<![\p{L}\p{N}_$])with(?![\p{L}\p{N}_$])(?!\s+time\s+zone)/iu.test(text)
