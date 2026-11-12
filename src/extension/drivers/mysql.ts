@@ -12,13 +12,12 @@ import {
   type ConnectionConfig,
   type EditRequest,
   type EditTarget,
-  type ExecuteContext,
   type OpenQuery,
   type ResultPage,
   type TreeNode
 } from '@shared/types'
 import { plural } from '@shared/format'
-import type { Cursor, Driver, DriverResult, EditOutcome, ResultBody } from './types'
+import type { Cursor, Driver, DriverResult, EditOutcome, ResultBody, RunContext } from './types'
 import { MAX_COMPLETION_COLUMNS, groupNames, runAll, splitSql, timed, toPlain, withTimeout } from './util'
 import { saveSqlEdits, sqlEditTarget } from './sqlEdits'
 
@@ -56,6 +55,11 @@ const BINARY_CHARSET = 63
 
 export function quoteId(name: string): string {
   return '`' + name.replace(/`/g, '``') + '`'
+}
+
+/** The callback-style connection inside the promise wrapper. Streaming needs it. */
+function coreOf(conn: Connection): CoreConnection {
+  return (conn as unknown as { connection: CoreConnection }).connection
 }
 
 export class MysqlDriver implements Driver {
@@ -201,26 +205,39 @@ export class MysqlDriver implements Driver {
     await s?.conn.end().catch(() => s.conn.destroy())
   }
 
-  async execute(query: string, ctx: ExecuteContext): Promise<DriverResult[]> {
+  async execute(query: string, ctx: RunContext): Promise<DriverResult[]> {
     const conn = await this.session(ctx.sessionId)
-    if (ctx.database) await conn.query(`USE ${quoteId(ctx.database)}`)
-    let last: DriverResult | undefined
-    return runAll(splitSql(query), async (sql) => {
-      // An open cursor from the previous statement ties up the connection, so close it. Only the last statement can page.
-      if (last?.cursor) {
-        await last.cursor.close()
-        last.cursor = undefined
-        last.truncated = true
-      }
-      let fields: FieldPacket[] | undefined
-      last = await timed(sql, async () => {
-        const cursor = await this.query(conn, sql, ctx.sessionId)
-        fields = cursor.fields
-        return cursor.body
-      })
-      if (fields && last.columns) last.edit = await this.editTarget(fields)
-      return last
-    })
+    // Stops the running statement on the server. The connection stays open, so variables and transactions persist.
+    const kill = () => {
+      this.db.query(`KILL QUERY ${Number(coreOf(conn).threadId)}`).catch(() => {})
+    }
+    ctx.signal.addEventListener('abort', kill, { once: true })
+    try {
+      if (ctx.database) await conn.query(`USE ${quoteId(ctx.database)}`)
+      let last: DriverResult | undefined
+      return await runAll(
+        splitSql(query),
+        async (sql) => {
+          // An open cursor from the previous statement ties up the connection, so close it. Only the last statement can page.
+          if (last?.cursor) {
+            await last.cursor.close()
+            last.cursor = undefined
+            last.truncated = true
+          }
+          let fields: FieldPacket[] | undefined
+          last = await timed(sql, async () => {
+            const cursor = await this.query(conn, sql, ctx.sessionId)
+            fields = cursor.fields
+            return cursor.body
+          })
+          if (fields && last.columns) last.edit = await this.editTarget(fields)
+          return last
+        },
+        { signal: ctx.signal }
+      )
+    } finally {
+      ctx.signal.removeEventListener('abort', kill)
+    }
   }
 
   /**
@@ -280,8 +297,7 @@ export class MysqlDriver implements Driver {
     sql: string,
     sessionId: string
   ): Promise<{ body: ResultBody; fields?: FieldPacket[] }> {
-    // Streaming needs the callback-style connection inside the promise wrapper
-    const core = (conn as unknown as { connection: CoreConnection }).connection
+    const core = coreOf(conn)
     const cursor = new MysqlCursor(core, sql, {
       kill: async () => {
         await this.db.query(`KILL QUERY ${Number(core.threadId)}`)

@@ -51,6 +51,8 @@ export interface Tab {
   query: string
   results: ResultState[]
   running: boolean
+  /** Cancel was clicked and the run has not stopped yet */
+  canceling?: boolean
   /** Edits are being saved on the tab's connection */
   saving: boolean
   /** Incremented on every new result to reset the result view (selected result, sort) */
@@ -78,6 +80,7 @@ interface State {
   updateTab(id: string, patch: Partial<Tab>): void
   closeTab(id: string): Promise<void>
   runTab(id: string, text?: string): Promise<void>
+  cancelTab(id: string): Promise<void>
   /** Shows a page of a result. Reads the next page from the extension if it has not been read yet. */
   showPage(tabId: string, index: number, page: number): Promise<void>
   /** Saves a result to a file. Returns true if saved. */
@@ -271,7 +274,16 @@ export const useStore = create<State>((set, get) => ({
       get().setStatus(tab.connectionId, 'error')
     }
     const current = get().tabs.find((t) => t.id === id)
-    if (current) get().updateTab(id, { running: false, results: results.map(toState), runId: current.runId + 1 })
+    if (current) {
+      get().updateTab(id, { running: false, canceling: false, results: results.map(toState), runId: current.runId + 1 })
+    }
+  },
+
+  async cancelTab(id) {
+    const tab = get().tabs.find((t) => t.id === id)
+    if (!tab?.running || tab.canceling) return
+    get().updateTab(id, { canceling: true })
+    await api.cancel(tab.connectionId, tab.id).catch(() => {})
   },
 
   async showPage(tabId, index, page) {

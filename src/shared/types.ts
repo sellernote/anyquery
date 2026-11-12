@@ -200,6 +200,8 @@ export interface Api {
   /** Table and column names of a database. Empty if the database type has none. */
   completions(id: string, database?: string): Promise<CompletionSchema>
   execute(id: string, query: string, ctx: ExecuteContext): Promise<QueryResult[]>
+  /** Stops the tab's run. Its statements that did not finish fail with "Canceled". */
+  cancel(id: string, sessionId: string): Promise<void>
   fetchPage(id: string, cursorId: string): Promise<ResultPage>
   closeSession(id: string, sessionId: string): Promise<void>
   /** Saves edited cells on the tab's session */

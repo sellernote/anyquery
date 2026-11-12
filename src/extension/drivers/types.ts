@@ -9,6 +9,11 @@ import type {
   TreeNode
 } from '@shared/types'
 
+export interface RunContext extends ExecuteContext {
+  /** Aborts when the user cancels the run. Drivers stop the running statement and skip the rest. */
+  signal: AbortSignal
+}
+
 /** Reads the next page of a result. hasMore is false on the last page. */
 export interface Cursor {
   next(): Promise<ResultPage>
@@ -38,7 +43,7 @@ export interface Driver {
   /** Table and column names for autocomplete. Only for SQL databases. */
   completions?(database?: string): Promise<CompletionSchema>
   /** Results hold only the first page. Read the rest with the cursor. */
-  execute(query: string, ctx: ExecuteContext): Promise<DriverResult[]>
+  execute(query: string, ctx: RunContext): Promise<DriverResult[]>
   closeSession(sessionId: string): Promise<void>
   /** Saves edited cells. Needed only by drivers that set QueryResult.edit. Throws if nothing was saved. */
   saveEdits?(sessionId: string, req: EditRequest): Promise<EditOutcome>

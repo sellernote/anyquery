@@ -1,8 +1,8 @@
 import Redis from 'ioredis'
-import type { ConnectionConfig, ExecuteContext, OpenQuery, TreeNode } from '@shared/types'
+import type { ConnectionConfig, OpenQuery, TreeNode } from '@shared/types'
 import { plural } from '@shared/format'
-import type { Driver, DriverResult, ResultBody } from './types'
-import { paginate, runAll, timed, tokenize } from './util'
+import type { Driver, DriverResult, ResultBody, RunContext } from './types'
+import { cancelable, paginate, runAll, timed, tokenize } from './util'
 
 /** Max number of keys shown in the tree */
 const MAX_KEYS = 500
@@ -65,6 +65,12 @@ export class RedisDriver implements Driver {
   async close(): Promise<void> {
     for (const client of this.clients.values()) client.disconnect()
     this.clients.clear()
+  }
+
+  /** Disconnects a client. The next command for its DB opens a new one. */
+  private drop(db: number, client: Redis): void {
+    if (this.clients.get(db) === client) this.clients.delete(db)
+    client.disconnect()
   }
 
   async ping(): Promise<string> {
@@ -145,28 +151,35 @@ export class RedisDriver implements Driver {
 
   async closeSession(): Promise<void> {}
 
-  async execute(query: string, ctx: ExecuteContext): Promise<DriverResult[]> {
+  async execute(query: string, ctx: RunContext): Promise<DriverResult[]> {
     let db = dbIndex(ctx.database ?? 'db0')
     const lines = query
       .split('\n')
       .map((l) => l.trim())
       .filter((l) => l && !l.startsWith('#') && !l.startsWith('//'))
-    return runAll(lines, (line) =>
-      timed(line, async () => {
-        const [cmd, ...args] = tokenize(line)
-        const name = cmd.toUpperCase()
-        if (BLOCKED.has(name)) throw new Error(`${name} is not supported`)
-        if (name === 'SELECT') {
-          // Applies only to the following lines in this run
-          const n = Number(args[0])
-          if (!Number.isInteger(n) || n < 0 || n >= this.dbCount) throw new Error('Invalid DB number')
-          db = n
-          return { message: `Selected db${n}` }
-        }
-        const client = await this.client(db)
-        const reply = await client.call(cmd, args)
-        return formatReply(name, args, reply)
-      })
+    return runAll(
+      lines,
+      (line) =>
+        timed(line, async () => {
+          const [cmd, ...args] = tokenize(line)
+          const name = cmd.toUpperCase()
+          if (BLOCKED.has(name)) throw new Error(`${name} is not supported`)
+          if (name === 'SELECT') {
+            // Applies only to the following lines in this run
+            const n = Number(args[0])
+            if (!Number.isInteger(n) || n < 0 || n >= this.dbCount) throw new Error('Invalid DB number')
+            db = n
+            return { message: `Selected db${n}` }
+          }
+          const client = await this.client(db)
+          const reply = await cancelable(client.call(cmd, args), ctx.signal).catch((err) => {
+            // A blocking command such as BLPOP holds the client until it returns, so drop the client
+            if (ctx.signal.aborted) this.drop(db, client)
+            throw err
+          })
+          return formatReply(name, args, reply)
+        }),
+      { signal: ctx.signal }
     )
   }
 }

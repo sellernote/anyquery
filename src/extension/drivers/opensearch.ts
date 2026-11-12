@@ -2,7 +2,7 @@ import { Client } from '@opensearch-project/opensearch'
 import type { ConnectionConfig, EditRequest, EditTarget, OpenQuery, TreeNode } from '@shared/types'
 import { plural } from '@shared/format'
 import { parseEdit } from '@shared/edit'
-import type { Cursor, Driver, DriverResult, EditOutcome, ResultBody } from './types'
+import type { Cursor, Driver, DriverResult, EditOutcome, ResultBody, RunContext } from './types'
 import { errorMessage, objectsToTable, paginate, runAll, timed } from './util'
 
 const REQUEST_LINE = /^\s*(GET|POST|PUT|DELETE|HEAD|PATCH)\s+(\S+)\s*$/i
@@ -113,16 +113,17 @@ export class OpenSearchDriver implements Driver {
 
   async closeSession(): Promise<void> {}
 
-  async execute(query: string): Promise<DriverResult[]> {
+  async execute(query: string, ctx: RunContext): Promise<DriverResult[]> {
     const requests = parseRequests(query)
     if (requests.length === 0) throw new Error('No request to run')
     // Like Kibana, keep sending the rest even if a request fails
-    return runAll(requests, (req) => timed(`${req.method} ${req.path}`, () => this.send(req)), {
-      stopOnError: false
+    return runAll(requests, (req) => timed(`${req.method} ${req.path}`, () => this.send(req, ctx.signal)), {
+      stopOnError: false,
+      signal: ctx.signal
     })
   }
 
-  private async send(req: Request): Promise<ResultBody> {
+  private async send(req: Request, signal: AbortSignal): Promise<ResultBody> {
     const url = new URL(req.path.startsWith('/') ? req.path : `/${req.path}`, 'http://x')
     const querystring = Object.fromEntries(url.searchParams)
     // Request _cat APIs as JSON to show them as a table
@@ -152,8 +153,15 @@ export class OpenSearchDriver implements Driver {
 
     // The client turns params.body into a string after sending. Keep the original for next-page requests.
     const original: RequestParams = { ...params, querystring: { ...querystring } }
+    // Closing the request also stops a search on the server
+    const request = this.os.transport.request(params)
+    // abort() returns the request, which rejects. Returned from a listener, Node would throw that rejection.
+    const abort = () => {
+      request.abort()
+    }
+    signal.addEventListener('abort', abort, { once: true })
     try {
-      const res = await this.os.transport.request(params)
+      const res = await request
       const result = formatResponse(res.body, res.statusCode ?? 200)
       const search = /^(?:\/(.+?))?\/_search$/.exec(url.pathname)
       if (search && result.columns) result.edit = hitsEditTarget(decodeURIComponent(search[1] ?? '_all'), res.body, result.columns)
@@ -165,6 +173,8 @@ export class OpenSearchDriver implements Driver {
         return { error: `${meta.statusCode ?? ''} ${reason}`.trim(), json: meta.body }
       }
       throw err
+    } finally {
+      signal.removeEventListener('abort', abort)
     }
   }
 

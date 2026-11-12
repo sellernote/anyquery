@@ -49,10 +49,22 @@ Open the folder in VS Code and press `F5`. It builds the extension and opens a n
 1. Click the AnyQuery icon in the Activity Bar, or run `AnyQuery: Open` from the Command Palette (`Cmd+Shift+P`, or `Ctrl+Shift+P` on Windows and Linux).
 2. Click `+` at the top left to add a connection. Click `Test connection` to check it first.
 3. Expand a connection to see its databases and tables (or collections, keys, indices). Click a table to query it in a new tab.
-4. Press `Cmd+Enter` (`Ctrl+Enter` on Windows and Linux) to run. If text is selected, only the selection runs.
+4. Press `Cmd+Enter` (`Ctrl+Enter` on Windows and Linux) to run. If text is selected, only the selection runs. Click `Cancel` to stop a run (see [Canceling](#canceling)).
 5. Results show 200 rows per page. Use `Previous` and `Next` above the results to change pages.
 6. Double-click a cell to see its full value, or to edit it if the result can be edited (see [Editing results](#editing-results)). Click a column header to sort. Sorting and copying apply to the current page only.
 7. Click `Download` to save every row as CSV or JSON. Pages not read yet are read from the database straight into the file. After that, the tab cannot page further until you run the query again.
+
+### Canceling
+
+`Cancel` stops the statement that is running and skips the ones after it. A statement that already finished keeps its result, even if it finished as you clicked.
+
+| Database | What Cancel does |
+|---|---|
+| MySQL | Stops the statement on the server with `KILL QUERY`. The tab's connection stays open, so variables and transactions persist. `SLEEP()` returns 1 instead of failing. |
+| PostgreSQL | Stops the statement on the server with `pg_cancel_backend`. The tab's connection stays open, but an open transaction is aborted. Run `ROLLBACK` to continue. |
+| OpenSearch | Closes the request. OpenSearch stops a search when its request is closed. |
+| Redis | Stops waiting and reconnects, so a blocking command such as `BLPOP` is released. The server finishes a slow command such as `KEYS`. |
+| MongoDB | Stops waiting. The server finishes the operation. |
 
 ### Query syntax
 
@@ -134,7 +146,6 @@ Connections are saved in VS Code's extension storage (`globalState`). Passwords 
 Not supported yet:
 
 - SSH tunnels
-- Canceling a running query
 - AWS SigV4 auth for OpenSearch (basic auth works)
 - Redis Cluster and Sentinel
 - Editing MongoDB and Redis results

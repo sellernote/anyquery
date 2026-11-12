@@ -449,6 +449,10 @@ input:disabled {
 }
 .toolbar .conn-name {
   font-weight: 500;
+  white-space: nowrap;
+}
+.toolbar button {
+  flex-shrink: 0;
 }
 .toolbar select {
   padding: 4px 6px;
@@ -464,6 +468,10 @@ input:disabled {
   color: var(--muted);
   font-size: 12px;
   margin-left: 4px;
+  min-width: 0;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
 }
 
 .tab-content {

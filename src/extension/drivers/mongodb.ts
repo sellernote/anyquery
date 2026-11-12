@@ -12,10 +12,10 @@ import {
   type Db,
   type MongoClientOptions
 } from 'mongodb'
-import { PAGE_SIZE, type ConnectionConfig, type ExecuteContext, type OpenQuery, type TreeNode } from '@shared/types'
+import { PAGE_SIZE, type ConnectionConfig, type OpenQuery, type TreeNode } from '@shared/types'
 import { plural } from '@shared/format'
-import type { Driver, DriverResult, ResultBody } from './types'
-import { objectsToTable, paginate, timed } from './util'
+import type { Driver, DriverResult, ResultBody, RunContext } from './types'
+import { cancelable, objectsToTable, paginate, timed } from './util'
 
 /** Time limit for running the query code itself. Does not include time spent waiting for the database. */
 const SCRIPT_TIMEOUT_MS = 5_000
@@ -106,19 +106,21 @@ export class MongoDriver implements Driver {
 
   async closeSession(): Promise<void> {}
 
-  async execute(query: string, ctx: ExecuteContext): Promise<DriverResult[]> {
+  async execute(query: string, ctx: RunContext): Promise<DriverResult[]> {
     const database = ctx.database || this.defaultDb()
     const code = query.trim()
-    return [
-      await timed(code, async () => {
-        const shortcut = await this.shellCommand(code, database)
-        if (shortcut !== undefined) return format(shortcut)
-        const context = vm.createContext(this.sandbox(this.mongo.db(database)))
-        let value = vm.runInContext(code, context, { timeout: SCRIPT_TIMEOUT_MS })
-        if (value && typeof (value as Promise<unknown>).then === 'function') value = await value
-        return isCursor(value) ? firstPage(value) : format(value)
-      })
-    ]
+    // Canceling stops waiting, but the server finishes the operation. A cursor that arrives later is closed.
+    const close = (body: ResultBody) => body.cursor?.close().catch(() => {})
+    return [await timed(code, () => cancelable(this.run(code, database), ctx.signal, close))]
+  }
+
+  private async run(code: string, database: string): Promise<ResultBody> {
+    const shortcut = await this.shellCommand(code, database)
+    if (shortcut !== undefined) return format(shortcut)
+    const context = vm.createContext(this.sandbox(this.mongo.db(database)))
+    let value = vm.runInContext(code, context, { timeout: SCRIPT_TIMEOUT_MS })
+    if (value && typeof (value as Promise<unknown>).then === 'function') value = await value
+    return isCursor(value) ? firstPage(value) : format(value)
   }
 
   /** Handles shell commands such as `show dbs` and `show collections` */

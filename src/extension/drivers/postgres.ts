@@ -14,13 +14,12 @@ import {
   type ConnectionConfig,
   type EditRequest,
   type EditTarget,
-  type ExecuteContext,
   type OpenQuery,
   type ResultPage,
   type TreeNode
 } from '@shared/types'
 import { plural } from '@shared/format'
-import type { Cursor, Driver, DriverResult, EditOutcome, ResultBody } from './types'
+import type { Cursor, Driver, DriverResult, EditOutcome, ResultBody, RunContext } from './types'
 import {
   MAX_COMPLETION_COLUMNS,
   groupNames,
@@ -264,28 +263,42 @@ export class PostgresDriver implements Driver {
     await s?.client.end().catch(() => {})
   }
 
-  async execute(query: string, ctx: ExecuteContext): Promise<DriverResult[]> {
+  async execute(query: string, ctx: RunContext): Promise<DriverResult[]> {
     const database = ctx.database || this.defaultDatabase
     const client = await this.session(ctx.sessionId, database)
-    let last: DriverResult | undefined
-    return runAll(splitPgSql(query), async (sql) => {
-      // An open cursor from the previous statement ties up the connection, so close it. Only the last statement can page.
-      if (last?.cursor) {
-        await last.cursor.close()
-        last.cursor = undefined
-        last.truncated = true
-      }
-      let fields: FieldDef[] | undefined
-      last = await timed(sql, async () => {
-        const pg = client.query(new PgCursor<unknown[]>(sql, undefined, { rowMode: 'array', types: typeParsers }))
-        const cursor = new PostgresCursor(pg, () => this.drop(ctx.sessionId, client))
-        const body = await cursor.first()
-        fields = cursor.fields
-        return body
-      })
-      if (fields && last.columns) last.edit = await this.editTarget(database, sql, fields)
-      return last
-    })
+    // Stops the running statement on the server. The connection stays open, but an open transaction is aborted.
+    const pid = (client as Client & { processID: number | null }).processID
+    const cancel = () => {
+      if (pid) this.rows(database, 'SELECT pg_cancel_backend($1)', [pid]).catch(() => {})
+    }
+    ctx.signal.addEventListener('abort', cancel, { once: true })
+    try {
+      let last: DriverResult | undefined
+      return await runAll(
+        splitPgSql(query),
+        async (sql) => {
+          // An open cursor from the previous statement ties up the connection, so close it. Only the last statement can page.
+          if (last?.cursor) {
+            await last.cursor.close()
+            last.cursor = undefined
+            last.truncated = true
+          }
+          let fields: FieldDef[] | undefined
+          last = await timed(sql, async () => {
+            const pg = client.query(new PgCursor<unknown[]>(sql, undefined, { rowMode: 'array', types: typeParsers }))
+            const cursor = new PostgresCursor(pg, () => this.drop(ctx.sessionId, client))
+            const body = await cursor.first()
+            fields = cursor.fields
+            return body
+          })
+          if (fields && last.columns) last.edit = await this.editTarget(database, sql, fields)
+          return last
+        },
+        { signal: ctx.signal }
+      )
+    } finally {
+      ctx.signal.removeEventListener('abort', cancel)
+    }
   }
 
   /** Results from one table with its primary key can be edited */

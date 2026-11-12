@@ -98,19 +98,44 @@ export async function timed(statement: string, run: () => Promise<ResultBody>): 
   }
 }
 
-/** Runs statements in order. By default, stops at the first failure. */
+/** The error of a statement stopped by the user */
+export const CANCELED = 'Canceled'
+
+/**
+ * Runs statements in order. By default, stops at the first failure.
+ * When the signal aborts, statements not started yet are skipped.
+ */
 export async function runAll<T>(
   items: T[],
   run: (item: T) => Promise<DriverResult>,
-  { stopOnError = true } = {}
+  { stopOnError = true, signal }: { stopOnError?: boolean; signal?: AbortSignal } = {}
 ): Promise<DriverResult[]> {
   const results: DriverResult[] = []
   for (const item of items) {
+    if (signal?.aborted) break
     const result = await run(item)
+    // The statement that was running fails with a server message, such as "Query execution was interrupted"
+    if (signal?.aborted && result.error) result.error = CANCELED
     results.push(result)
     if (result.error && stopOnError) break
   }
   return results
+}
+
+/**
+ * Stops waiting for work when the signal aborts, and rejects with CANCELED. The work itself keeps going.
+ * If it finishes later, its value goes to onLate, e.g. to close a cursor.
+ */
+export function cancelable<T>(work: Promise<T>, signal: AbortSignal, onLate?: (value: T) => void): Promise<T> {
+  return new Promise<T>((resolve, reject) => {
+    const onAbort = () => {
+      reject(new Error(CANCELED))
+      work.then(onLate, () => {})
+    }
+    if (signal.aborted) return onAbort()
+    signal.addEventListener('abort', onAbort, { once: true })
+    work.then(resolve, reject).finally(() => signal.removeEventListener('abort', onAbort))
+  })
 }
 
 /**

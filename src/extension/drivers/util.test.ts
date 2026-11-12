@@ -1,6 +1,17 @@
 import { describe, test } from 'node:test'
 import assert from 'node:assert/strict'
-import { groupNames, objectsToTable, paginate, splitPgSql, splitSql, stripPgComments, tokenize } from './util'
+import {
+  CANCELED,
+  cancelable,
+  groupNames,
+  objectsToTable,
+  paginate,
+  runAll,
+  splitPgSql,
+  splitSql,
+  stripPgComments,
+  tokenize
+} from './util'
 import { quoteArg } from './redis'
 
 describe('splitSql (MySQL)', () => {
@@ -110,6 +121,53 @@ describe('objectsToTable', () => {
         [undefined, 3, 2]
       ]
     })
+  })
+})
+
+describe('runAll', () => {
+  const ok = (statement: string) => ({ statement, elapsedMs: 0 })
+
+  test('stops at the first error unless told not to', async () => {
+    const run = async (s: string) => (s === 'b' ? { ...ok(s), error: 'bad' } : ok(s))
+    assert.deepEqual((await runAll(['a', 'b', 'c'], run)).map((r) => r.statement), ['a', 'b'])
+    assert.deepEqual((await runAll(['a', 'b', 'c'], run, { stopOnError: false })).map((r) => r.statement), ['a', 'b', 'c'])
+  })
+
+  test('when canceled, marks the running statement and skips the rest', async () => {
+    const controller = new AbortController()
+    const run = async (s: string) => {
+      if (s !== 'b') return ok(s)
+      controller.abort()
+      return { ...ok(s), error: 'Query execution was interrupted' }
+    }
+    const results = await runAll(['a', 'b', 'c'], run, { stopOnError: false, signal: controller.signal })
+    assert.deepEqual(results, [ok('a'), { ...ok('b'), error: CANCELED }])
+  })
+})
+
+describe('cancelable', () => {
+  test('passes the result through when not canceled', async () => {
+    assert.equal(await cancelable(Promise.resolve(1), new AbortController().signal), 1)
+  })
+
+  test('rejects on cancel and hands a late result to onLate', async () => {
+    const controller = new AbortController()
+    let finish!: (value: string) => void
+    const work = new Promise<string>((resolve) => (finish = resolve))
+    const late: string[] = []
+    const waiting = cancelable(work, controller.signal, (v) => late.push(v))
+    controller.abort()
+    await assert.rejects(waiting, new RegExp(CANCELED))
+    finish('cursor')
+    await work
+    await new Promise((resolve) => setImmediate(resolve))
+    assert.deepEqual(late, ['cursor'])
+  })
+
+  test('rejects right away when already canceled', async () => {
+    const controller = new AbortController()
+    controller.abort()
+    await assert.rejects(cancelable(new Promise(() => {}), controller.signal), new RegExp(CANCELED))
   })
 })
 

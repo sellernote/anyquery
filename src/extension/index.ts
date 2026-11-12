@@ -6,7 +6,7 @@ import { ConnectionStore } from './store'
 import { CursorRegistry } from './cursors'
 import { DriverManager, testConnection } from './drivers'
 import { download } from './download'
-import { errorMessage } from './drivers/util'
+import { CANCELED, cancelable, errorMessage } from './drivers/util'
 
 let store: ConnectionStore
 let drivers: DriverManager
@@ -15,6 +15,10 @@ let workspaceState: vscode.Memento
 const TABS_KEY = 'tabs'
 const cursors = new CursorRegistry()
 let panel: vscode.WebviewPanel | undefined
+
+/** Runs in progress by connection and tab, so they can be canceled */
+const runs = new Map<string, AbortController>()
+const runKey = (id: string, sessionId: string) => `${id}\n${sessionId}`
 
 /** An open MySQL cursor ties up its connection. Close cursors first, then disconnect. */
 async function closeDriver(id: string): Promise<void> {
@@ -54,10 +58,28 @@ const api: Api = {
   execute: async (id, query, ctx) => {
     // A tab keeps only its latest result, so close cursors from the previous run
     await cursors.closeSession(id, ctx.sessionId)
-    const results = await (await drivers.get(id)).execute(query, ctx)
-    return results.map(({ cursor, ...result }) =>
-      cursor ? { ...result, cursorId: cursors.add(id, ctx.sessionId, cursor) } : result
-    )
+    const key = runKey(id, ctx.sessionId)
+    const controller = new AbortController()
+    runs.set(key, controller)
+    const { signal } = controller
+    const start = performance.now()
+    try {
+      // Connecting can take a while, so canceling stops waiting for it too
+      const driver = await cancelable(drivers.get(id), signal)
+      const results = await driver.execute(query, { ...ctx, signal })
+      if (results.length === 0 && signal.aborted) throw new Error(CANCELED)
+      return results.map(({ cursor, ...result }) =>
+        cursor ? { ...result, cursorId: cursors.add(id, ctx.sessionId, cursor) } : result
+      )
+    } catch (err) {
+      if (!signal.aborted) throw err
+      return [{ statement: query.trim(), error: CANCELED, elapsedMs: Math.round(performance.now() - start) }]
+    } finally {
+      if (runs.get(key) === controller) runs.delete(key)
+    }
+  },
+  cancel: async (id, sessionId) => {
+    runs.get(runKey(id, sessionId))?.abort()
   },
   fetchPage: (id, cursorId) => cursors.next(id, cursorId),
   saveEdits: async (id, sessionId, req) => {
@@ -72,6 +94,7 @@ const api: Api = {
     }
   },
   closeSession: async (id, sessionId) => {
+    runs.get(runKey(id, sessionId))?.abort()
     await cursors.closeSession(id, sessionId)
     const driver = await drivers.get(id).catch(() => null)
     await driver?.closeSession(sessionId)

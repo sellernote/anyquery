@@ -9,7 +9,7 @@ import { api } from '../api'
 
 export function QueryTab({ tab, active }: { tab: Tab; active: boolean }) {
   const conn = useStore((s) => s.connections.find((c) => c.id === tab.connectionId))
-  const { updateTab, runTab, showPage, download, openCell, saveEdits, discardEdits } = useStore.getState()
+  const { updateTab, runTab, cancelTab, showPage, download, openCell, saveEdits, discardEdits } = useStore.getState()
   const [databases, setDatabases] = useState<string[]>([])
   const [schema, setSchema] = useState<CompletionSchema>()
   const [split, setSplit] = useState(40)
@@ -97,6 +97,11 @@ export function QueryTab({ tab, active }: { tab: Tab; active: boolean }) {
           <Icon name="play" size={12} />
           {tab.running ? 'Running...' : 'Run'}
         </button>
+        {tab.running && (
+          <button onClick={() => cancelTab(tab.id)} disabled={tab.canceling} title="Stop the running query">
+            {tab.canceling ? 'Canceling...' : 'Cancel'}
+          </button>
+        )}
         <span className="hint">Cmd+Enter to run. Select text to run only that part.</span>
       </div>
       <div className="tab-content" ref={bodyRef}>
