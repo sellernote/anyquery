@@ -1,7 +1,6 @@
 # Publishes a release to the VS Code Marketplace and Open VSX, and attaches the .vsix to a GitHub release.
 # Runs when a vX.Y.Z tag is pushed. To publish an existing tag again, run it by hand with that tag.
-# The Marketplace trusts this workflow through a Trusted Publishing policy, so it needs no token.
-# Open VSX needs the repository secret OVSX_PAT.
+# Needs no tokens: the Marketplace and Open VSX both trust this workflow through Trusted Publishing.
 name: Release
 
 on:
@@ -17,7 +16,7 @@ concurrency: release
 
 permissions:
   contents: write
-  id-token: write # lets vsce sign in to the Marketplace with Trusted Publishing
+  id-token: write # lets vsce and ovsx sign in with Trusted Publishing
 
 jobs:
   publish:
@@ -25,11 +24,6 @@ jobs:
     env:
       TAG: ${{ inputs.tag || github.ref_name }}
     steps:
-      - name: Check the Open VSX token
-        env:
-          OVSX_PAT: ${{ secrets.OVSX_PAT }}
-        run: '[ -n "$OVSX_PAT" ] || { echo "::error::Add the OVSX_PAT repository secret (Open VSX token)"; exit 1; }'
-
       - uses: actions/checkout@v5
         with:
           ref: ${{ env.TAG }}
@@ -58,9 +52,7 @@ jobs:
         run: pnpm dlx @vscode/vsce@4.1.0 publish --oidc --packagePath "anyquery-$VERSION.vsix" --skip-duplicate
 
       - name: Publish to Open VSX
-        env:
-          OVSX_PAT: ${{ secrets.OVSX_PAT }}
-        run: pnpm dlx ovsx@1.4.0 publish "anyquery-$VERSION.vsix" --pat "$OVSX_PAT" --skip-duplicate
+        run: pnpm dlx ovsx@1.4.0 publish "anyquery-$VERSION.vsix" --trusted-publishing --skip-duplicate
 
       - name: Attach the .vsix to a GitHub release
         env:
