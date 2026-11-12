@@ -32,7 +32,10 @@ git tag -a v0.3.1 -m v0.3.1
 git push origin main v0.3.1
 ```
 
-The Release workflow then publishes the extension to the VS Code Marketplace and Open VSX, and attaches the `.vsix` to a GitHub release. It needs two repository secrets: `VSCE_PAT` (Marketplace) and `OVSX_PAT` (Open VSX). The Marketplace token lasts at most a year. When a release fails on it, make a new token and update the secret.
+The Release workflow then publishes the extension to the VS Code Marketplace and Open VSX, and attaches the `.vsix` to a GitHub release.
+
+- **Marketplace**: no token. The publisher trusts the workflow through a Trusted Publishing policy. To set it up, open the `seller-note` publisher at [marketplace.visualstudio.com/manage](https://marketplace.visualstudio.com/manage), select **Trusted Publishing**, and create a policy with owner `sellernote`, repository `anyquery`, workflow `release.yml` and no environment.
+- **Open VSX**: needs the repository secret `OVSX_PAT`, an access token from [open-vsx.org](https://open-vsx.org/user-settings/tokens).
 
 To publish an existing tag again, run the Release workflow by hand from the Actions tab with that tag. Versions already published are skipped.
 

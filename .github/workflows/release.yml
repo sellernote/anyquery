@@ -1,6 +1,7 @@
 # Publishes a release to the VS Code Marketplace and Open VSX, and attaches the .vsix to a GitHub release.
 # Runs when a vX.Y.Z tag is pushed. To publish an existing tag again, run it by hand with that tag.
-# Needs the repository secrets VSCE_PAT (Marketplace) and OVSX_PAT (Open VSX).
+# The Marketplace trusts this workflow through a Trusted Publishing policy, so it needs no token.
+# Open VSX needs the repository secret OVSX_PAT.
 name: Release
 
 on:
@@ -16,6 +17,7 @@ concurrency: release
 
 permissions:
   contents: write
+  id-token: write # lets vsce sign in to the Marketplace with Trusted Publishing
 
 jobs:
   publish:
@@ -23,13 +25,10 @@ jobs:
     env:
       TAG: ${{ inputs.tag || github.ref_name }}
     steps:
-      - name: Check tokens
+      - name: Check the Open VSX token
         env:
-          VSCE_PAT: ${{ secrets.VSCE_PAT }}
           OVSX_PAT: ${{ secrets.OVSX_PAT }}
-        run: |
-          [ -n "$VSCE_PAT" ] || { echo "::error::Add the VSCE_PAT repository secret (Marketplace token)"; exit 1; }
-          [ -n "$OVSX_PAT" ] || { echo "::error::Add the OVSX_PAT repository secret (Open VSX token)"; exit 1; }
+        run: '[ -n "$OVSX_PAT" ] || { echo "::error::Add the OVSX_PAT repository secret (Open VSX token)"; exit 1; }'
 
       - uses: actions/checkout@v5
         with:
@@ -53,11 +52,10 @@ jobs:
       - run: pnpm test
       - run: pnpm package
 
-      # --skip-duplicate makes a rerun safe after only one of them succeeded
+      # --skip-duplicate makes a rerun safe after only one of them succeeded.
+      # vsce is pinned here, not taken from the tag, because --oidc needs 4.1.0 or later.
       - name: Publish to the VS Code Marketplace
-        env:
-          VSCE_PAT: ${{ secrets.VSCE_PAT }}
-        run: pnpm exec vsce publish --packagePath "anyquery-$VERSION.vsix" --skip-duplicate
+        run: pnpm dlx @vscode/vsce@4.1.0 publish --oidc --packagePath "anyquery-$VERSION.vsix" --skip-duplicate
 
       - name: Publish to Open VSX
         env:
