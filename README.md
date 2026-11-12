@@ -21,6 +21,7 @@ Built with React and TypeScript. Needs VS Code 1.101 or later.
 - Download every row of a result as CSV or JSON
 - Passwords are encrypted with the OS keychain
 - Follows your VS Code color theme, light or dark
+- Open tabs and their queries come back the next time you open AnyQuery in the same workspace. Results are not kept.
 
 ## Getting started
 
@@ -126,7 +127,7 @@ After saving, only the edited cells change. Run the query again to see other val
 
 ### Where data is stored
 
-Connections are saved in VS Code's extension storage (`globalState`). Passwords and MongoDB URIs are saved separately in VS Code's `SecretStorage`, which uses the OS keychain.
+Connections are saved in VS Code's extension storage (`globalState`). Passwords and MongoDB URIs are saved separately in VS Code's `SecretStorage`, which uses the OS keychain. Open tabs and their queries are saved per workspace (`workspaceState`).
 
 ## Limitations
 
@@ -136,7 +137,6 @@ Not supported yet:
 - Canceling a running query
 - AWS SigV4 auth for OpenSearch (basic auth works)
 - Redis Cluster and Sentinel
-- Saving tabs and editor content (they are lost when the panel closes)
 - Editing MongoDB and Redis results
 
 ## Contributing

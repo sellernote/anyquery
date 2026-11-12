@@ -137,6 +137,20 @@ export interface OpenQuery {
   database?: string
 }
 
+/** A query tab kept for the next time the panel opens. Results are not kept. */
+export interface SavedTab {
+  connectionId: string
+  title: string
+  database?: string
+  query: string
+}
+
+export interface SavedTabs {
+  tabs: SavedTab[]
+  /** Index of the active tab, or -1 */
+  active: number
+}
+
 /** Names for autocomplete: table → columns, or schema → table → columns */
 export interface SqlNamespace {
   [name: string]: string[] | SqlNamespace
@@ -190,6 +204,9 @@ export interface Api {
   closeSession(id: string, sessionId: string): Promise<void>
   /** Saves edited cells on the tab's session */
   saveEdits(id: string, sessionId: string, req: EditRequest): Promise<EditResult>
+  /** Tabs saved for this workspace, or null if none were saved */
+  loadTabs(): Promise<SavedTabs | null>
+  saveTabs(state: SavedTabs): Promise<void>
   /** Webviews cannot show confirm(), so VS Code shows the dialog */
   confirm(message: string, action: string): Promise<boolean>
   copyText(text: string): Promise<void>

@@ -16,8 +16,14 @@ export function QueryTab({ tab, active }: { tab: Tab; active: boolean }) {
   const viewRef = useRef<EditorView>(undefined)
   const bodyRef = useRef<HTMLDivElement>(null)
 
+  // Tabs restored when the panel opens connect only once they are shown
+  const [shown, setShown] = useState(active)
+  useEffect(() => {
+    if (active) setShown(true)
+  }, [active])
+
   const type = conn?.type
-  const connId = conn?.id
+  const connId = shown ? conn?.id : undefined
 
   useEffect(() => {
     if (!connId || type === 'opensearch') return

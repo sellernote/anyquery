@@ -1,5 +1,13 @@
 import { create } from 'zustand'
-import type { ConnectionConfig, DbType, DownloadFormat, QueryResult, RowEdit } from '@shared/types'
+import type {
+  ConnectionConfig,
+  DbType,
+  DownloadFormat,
+  QueryResult,
+  RowEdit,
+  SavedTab,
+  SavedTabs
+} from '@shared/types'
 import { plural } from '@shared/format'
 import { api } from './api'
 import { cellKey, editedValue } from './edits'
@@ -95,6 +103,36 @@ export const DEFAULT_QUERY: Record<DbType, string> = {
 
 let tabSeq = 0
 
+function newTab({ connectionId, title, database, query }: SavedTab): Tab {
+  return { id: `tab-${++tabSeq}`, connectionId, title, database, query, results: [], running: false, saving: false, runId: 0 }
+}
+
+/** The part of the tabs that is saved */
+function savedTabs({ tabs, activeTabId }: Pick<State, 'tabs' | 'activeTabId'>): SavedTabs {
+  return {
+    tabs: tabs.map(({ connectionId, title, database, query }) => ({ connectionId, title, database, query })),
+    active: tabs.findIndex((t) => t.id === activeTabId)
+  }
+}
+
+/** Set once the saved tabs are restored. StrictMode calls load() twice in development builds. */
+let restored = false
+
+/** Saves the tabs whenever they change, so they come back the next time the panel opens */
+function saveTabsOnChange(): void {
+  let last = JSON.stringify(savedTabs(useStore.getState()))
+  let timer: ReturnType<typeof setTimeout> | undefined
+  useStore.subscribe((s) => {
+    const state = savedTabs(s)
+    const text = JSON.stringify(state)
+    if (text === last) return
+    last = text
+    clearTimeout(timer)
+    // Typing changes the query on every key, so wait for a pause
+    timer = setTimeout(() => api.saveTabs(state).catch(() => {}), 300)
+  })
+}
+
 /** Updates a tab's results. Skipped if the tab was rerun in the meantime, so stale results are dropped. */
 function patchResults(tab: Tab, fn: (r: ResultState, index: number) => Partial<ResultState> | undefined): void {
   useStore.setState((s) => ({
@@ -141,7 +179,17 @@ export const useStore = create<State>((set, get) => ({
   treeFilter: '',
 
   async load() {
-    set({ connections: await api.listConnections() })
+    const [connections, saved] = await Promise.all([api.listConnections(), api.loadTabs().catch(() => null)])
+    set({ connections })
+    if (restored) return
+    restored = true
+    // Tabs of deleted connections are dropped
+    const known = new Set(connections.map((c) => c.id))
+    const kept = (saved?.tabs ?? []).map((tab, index) => ({ tab, index })).filter(({ tab }) => known.has(tab.connectionId))
+    const tabs = kept.map(({ tab }) => newTab(tab))
+    const active = tabs[kept.findIndex(({ index }) => index === saved?.active)] ?? tabs.at(-1)
+    set({ tabs, activeTabId: active?.id })
+    saveTabsOnChange()
   },
 
   async saveConnection(config) {
@@ -179,20 +227,14 @@ export const useStore = create<State>((set, get) => ({
   openTab(connectionId, init = {}) {
     const conn = get().connections.find((c) => c.id === connectionId)
     if (!conn) throw new Error('Connection not found')
-    const id = `tab-${++tabSeq}`
-    const tab: Tab = {
-      id,
+    const tab = newTab({
       connectionId,
       title: init.title ?? conn.name,
       database: init.database ?? (conn.type === 'redis' ? 'db0' : conn.database || undefined),
-      query: init.query ?? DEFAULT_QUERY[conn.type],
-      results: [],
-      running: false,
-      saving: false,
-      runId: 0
-    }
-    set((s) => ({ tabs: [...s.tabs, tab], activeTabId: id }))
-    return id
+      query: init.query ?? DEFAULT_QUERY[conn.type]
+    })
+    set((s) => ({ tabs: [...s.tabs, tab], activeTabId: tab.id }))
+    return tab.id
   },
 
   updateTab(id, patch) {

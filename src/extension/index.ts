@@ -1,6 +1,6 @@
 import * as vscode from 'vscode'
 import { randomBytes } from 'node:crypto'
-import type { Api } from '@shared/types'
+import type { Api, SavedTabs } from '@shared/types'
 import { decode, encode, type Reply, type Request, type Response } from '@shared/rpc'
 import { ConnectionStore } from './store'
 import { CursorRegistry } from './cursors'
@@ -10,6 +10,9 @@ import { errorMessage } from './drivers/util'
 
 let store: ConnectionStore
 let drivers: DriverManager
+/** Open tabs are kept per workspace, like editor tabs */
+let workspaceState: vscode.Memento
+const TABS_KEY = 'tabs'
 const cursors = new CursorRegistry()
 let panel: vscode.WebviewPanel | undefined
 
@@ -72,6 +75,10 @@ const api: Api = {
     await cursors.closeSession(id, sessionId)
     const driver = await drivers.get(id).catch(() => null)
     await driver?.closeSession(sessionId)
+  },
+  loadTabs: async () => workspaceState.get<SavedTabs>(TABS_KEY) ?? null,
+  saveTabs: async (state) => {
+    await workspaceState.update(TABS_KEY, state)
   },
   confirm: async (message, action) => (await vscode.window.showWarningMessage(message, { modal: true }, action)) === action,
   copyText: async (text) => {
@@ -153,6 +160,7 @@ function html(webview: vscode.Webview, root: vscode.Uri): string {
 export async function activate(context: vscode.ExtensionContext): Promise<void> {
   store = await ConnectionStore.load(context)
   drivers = new DriverManager((id) => store.get(id))
+  workspaceState = context.workspaceState
   context.subscriptions.push(vscode.commands.registerCommand('anyquery.open', () => openPanel(context)))
 
   // The activity bar icon opens the panel. VS Code needs a view behind the icon, but it only shows
