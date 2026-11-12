@@ -4,8 +4,8 @@ import { StreamLanguage } from '@codemirror/language'
 import { MySQL, PostgreSQL, sql } from '@codemirror/lang-sql'
 import { javascript } from '@codemirror/lang-javascript'
 import { json } from '@codemirror/lang-json'
-import { oneDark } from '@codemirror/theme-one-dark'
 import type { CompletionSchema, DbType } from '@shared/types'
+import { editorThemes, useDarkTheme } from '../theme'
 
 /** One redis-cli line: the first word is the command, the rest are arguments */
 const redisLanguage = StreamLanguage.define<null>({
@@ -80,6 +80,7 @@ interface Props {
 }
 
 export function Editor({ type, value, schema, onChange, onRun, onView }: Props) {
+  const dark = useDarkTheme()
   const runRef = useRef(onRun)
   runRef.current = onRun
 
@@ -106,7 +107,7 @@ export function Editor({ type, value, schema, onChange, onRun, onView }: Props) 
       className="editor"
       value={value}
       height="100%"
-      theme={oneDark}
+      theme={dark ? editorThemes.dark : editorThemes.light}
       extensions={extensions}
       onChange={onChange}
       onCreateEditor={(view) => onView?.(view)}
@@ -116,13 +117,14 @@ export function Editor({ type, value, schema, onChange, onRun, onView }: Props) 
 }
 
 export function JsonViewer({ value }: { value: string }) {
+  const dark = useDarkTheme()
   const extensions = useMemo(() => [json(), EditorView.lineWrapping], [])
   return (
     <CodeMirror
       className="json-viewer"
       value={value}
       height="100%"
-      theme={oneDark}
+      theme={dark ? editorThemes.dark : editorThemes.light}
       editable={false}
       extensions={extensions}
       basicSetup={{ foldGutter: true, highlightActiveLine: false, highlightActiveLineGutter: false }}

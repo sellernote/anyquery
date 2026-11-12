@@ -1,25 +1,31 @@
+/*
+ * Colors follow the VS Code theme. VS Code sets a --vscode-* variable for each theme color.
+ * The fallbacks are used only where a theme leaves a color out.
+ */
 :root {
-  --bg: #1b1d23;
-  --bg-panel: #21252b;
-  --bg-sidebar: #1e2127;
-  --bg-input: #16181d;
-  --bg-hover: #2c313a;
-  --bg-active: #353b45;
-  --border: #2f343d;
-  --text: #d7dae0;
-  --muted: #7f848e;
-  --accent: #4d8ef7;
-  --accent-hover: #6aa1fa;
-  --danger: #e06c75;
-  --ok: #98c379;
-  --warn: #e5c07b;
+  --bg: var(--vscode-editor-background, #1b1d23);
+  --bg-panel: var(--vscode-editorWidget-background, #21252b);
+  --bg-sidebar: var(--vscode-sideBar-background, #1e2127);
+  --bg-input: var(--vscode-input-background, #16181d);
+  --bg-hover: var(--vscode-list-hoverBackground, #2c313a);
+  --bg-active: var(--vscode-toolbar-hoverBackground, #353b45);
+  --border: var(--vscode-panel-border, #2f343d);
+  --text: var(--vscode-foreground, #d7dae0);
+  --muted: var(--vscode-descriptionForeground, #7f848e);
+  --accent: var(--vscode-button-background, #4d8ef7);
+  --accent-text: var(--vscode-button-foreground, #fff);
+  --accent-hover: var(--vscode-button-hoverBackground, #6aa1fa);
+  --focus: var(--vscode-focusBorder, #4d8ef7);
+  --danger: var(--vscode-errorForeground, #e06c75);
+  --ok: var(--vscode-charts-green, #98c379);
+  --warn: var(--vscode-charts-yellow, #e5c07b);
+  --shadow: var(--vscode-widget-shadow, rgba(0, 0, 0, 0.5));
   --c-mysql: #4d8fd1;
   --c-postgres: #8a6fd1;
   --c-mongodb: #4fae4e;
   --c-redis: #e0503f;
   --c-opensearch: #e5a50a;
-  --mono: 'SF Mono', Menlo, Consolas, 'D2Coding', monospace;
-  color-scheme: dark;
+  --mono: var(--vscode-editor-font-family, 'SF Mono', Menlo, Consolas, 'D2Coding', monospace);
 }
 
 * {
@@ -42,6 +48,12 @@ body {
   font: 13px/1.4 -apple-system, BlinkMacSystemFont, 'Apple SD Gothic Neo', 'Malgun Gothic', 'Segoe UI', sans-serif;
   -webkit-font-smoothing: antialiased;
   user-select: none;
+  /* Native controls and scrollbars */
+  color-scheme: dark;
+}
+body.vscode-light,
+body.vscode-high-contrast-light {
+  color-scheme: light;
 }
 
 button,
@@ -69,7 +81,7 @@ button:disabled {
 button.primary {
   background: var(--accent);
   border-color: var(--accent);
-  color: #fff;
+  color: var(--accent-text);
 }
 button.primary:hover:not(:disabled) {
   background: var(--accent-hover);
@@ -101,14 +113,14 @@ button.link {
 input,
 select {
   background: var(--bg-input);
-  border: 1px solid var(--border);
+  border: 1px solid var(--vscode-input-border, var(--border));
   border-radius: 5px;
   padding: 6px 8px;
   outline: none;
 }
 input:focus,
 select:focus {
-  border-color: var(--accent);
+  border-color: var(--focus);
 }
 input:disabled {
   opacity: 0.5;
@@ -207,9 +219,6 @@ input:disabled {
   font-size: 11px;
   flex-shrink: 0;
 }
-.tree-row.openable:hover .label {
-  color: #fff;
-}
 .chevron {
   color: var(--muted);
   transition: transform 0.1s;
@@ -232,18 +241,18 @@ input:disabled {
   color: var(--muted);
 }
 .kind-icon.database {
-  color: #c678dd;
+  color: var(--vscode-charts-purple, #c678dd);
 }
 .kind-icon.schema {
-  color: #d19a66;
+  color: var(--vscode-charts-orange, #d19a66);
 }
 .kind-icon.table,
 .kind-icon.collection,
 .kind-icon.index {
-  color: #61afef;
+  color: var(--vscode-charts-blue, #61afef);
 }
 .kind-icon.view {
-  color: #56b6c2;
+  color: var(--vscode-terminal-ansiCyan, #56b6c2);
 }
 .kind-icon.key {
   color: var(--warn);
@@ -476,7 +485,8 @@ input:disabled {
 .cm-editor {
   font-size: 13px;
 }
-.cm-editor .cm-scroller {
+.cm-editor .cm-scroller,
+.cm-tooltip-autocomplete > ul {
   font-family: var(--mono);
 }
 .cm-editor.cm-focused {
@@ -491,7 +501,7 @@ input:disabled {
   border-bottom: 2px solid var(--bg);
 }
 .splitter:hover {
-  background: var(--accent);
+  background: var(--focus);
 }
 .result-pane {
   flex: 1;
@@ -600,8 +610,8 @@ input:disabled {
 .error-box {
   margin: 10px;
   padding: 10px 12px;
-  background: rgba(224, 108, 117, 0.1);
-  border: 1px solid rgba(224, 108, 117, 0.4);
+  background: color-mix(in srgb, var(--danger) 10%, transparent);
+  border: 1px solid color-mix(in srgb, var(--danger) 40%, transparent);
   border-radius: 6px;
   color: var(--danger);
   font-family: var(--mono);
@@ -652,26 +662,26 @@ input:disabled {
   background: var(--bg-hover);
 }
 .grid .sort {
-  color: var(--accent);
+  color: var(--focus);
   font-size: 10px;
 }
 .grid tbody tr:hover td {
-  background: rgba(255, 255, 255, 0.03);
+  background: var(--bg-hover);
 }
 .grid td.edited,
 .grid tbody tr:hover td.edited {
-  background: rgba(229, 192, 123, 0.18);
+  background: color-mix(in srgb, var(--warn) 22%, var(--bg));
 }
 .grid td.null {
   color: var(--muted);
   font-style: italic;
 }
 .grid td.number {
-  color: #d19a66;
+  color: var(--vscode-debugTokenExpression-number, #d19a66);
   text-align: right;
 }
 .grid td.object {
-  color: #98c379;
+  color: var(--ok);
 }
 .grid .rownum {
   color: var(--muted);
@@ -721,7 +731,7 @@ input:disabled {
   border: 1px solid var(--border);
   border-radius: 10px;
   padding: 18px 20px;
-  box-shadow: 0 20px 50px rgba(0, 0, 0, 0.5);
+  box-shadow: 0 20px 50px var(--shadow);
   display: flex;
   flex-direction: column;
   gap: 12px;
@@ -802,11 +812,11 @@ input:disabled {
   user-select: text;
 }
 .test-result.ok {
-  background: rgba(152, 195, 121, 0.12);
+  background: color-mix(in srgb, var(--ok) 12%, transparent);
   color: var(--ok);
 }
 .test-result.fail {
-  background: rgba(224, 108, 117, 0.12);
+  background: color-mix(in srgb, var(--danger) 12%, transparent);
   color: var(--danger);
 }
 .modal-actions {

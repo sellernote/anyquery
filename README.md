@@ -20,6 +20,7 @@ Built with React and TypeScript. Needs VS Code 1.101 or later.
 - Edit cells in MySQL, PostgreSQL and OpenSearch results, then save or discard the changes
 - Download every row of a result as CSV or JSON
 - Passwords are encrypted with the OS keychain
+- Follows your VS Code color theme, light or dark
 
 ## Getting started
 
