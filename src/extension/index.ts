@@ -44,6 +44,10 @@ const api: Api = {
   children: async (id, path) => (await drivers.get(id)).children(path),
   databases: async (id) => (await drivers.get(id)).databases(),
   openQuery: async (id, path) => (await drivers.get(id)).openQuery(path),
+  completions: async (id, database) => {
+    const driver = await drivers.get(id)
+    return driver.completions ? driver.completions(database) : { tables: {} }
+  },
   execute: async (id, query, ctx) => {
     // A tab keeps only its latest result, so close cursors from the previous run
     await cursors.closeSession(id, ctx.sessionId)

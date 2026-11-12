@@ -1,11 +1,11 @@
 import { useMemo, useRef } from 'react'
 import CodeMirror, { EditorView, keymap, Prec, type Extension } from '@uiw/react-codemirror'
 import { StreamLanguage } from '@codemirror/language'
-import { MySQL, PostgreSQL, sql, type SQLNamespace } from '@codemirror/lang-sql'
+import { MySQL, PostgreSQL, sql } from '@codemirror/lang-sql'
 import { javascript } from '@codemirror/lang-javascript'
 import { json } from '@codemirror/lang-json'
 import { oneDark } from '@codemirror/theme-one-dark'
-import type { DbType } from '@shared/types'
+import type { CompletionSchema, DbType } from '@shared/types'
 
 /** One redis-cli line: the first word is the command, the rest are arguments */
 const redisLanguage = StreamLanguage.define<null>({
@@ -40,12 +40,17 @@ const openSearchLanguage = StreamLanguage.define<null>({
   }
 })
 
-export function languageFor(type: DbType, schema?: SQLNamespace): Extension {
+export function languageFor(type: DbType, schema?: CompletionSchema): Extension {
   switch (type) {
     case 'mysql':
-      return sql({ dialect: MySQL, schema, upperCaseKeywords: true })
+      return sql({ dialect: MySQL, schema: schema?.tables, upperCaseKeywords: true })
     case 'postgres':
-      return sql({ dialect: PostgreSQL, upperCaseKeywords: true })
+      return sql({
+        dialect: PostgreSQL,
+        schema: schema?.tables,
+        defaultSchema: schema?.defaultSchema,
+        upperCaseKeywords: true
+      })
     case 'mongodb':
       return javascript()
     case 'redis':
@@ -68,7 +73,7 @@ export function selectedText(view: EditorView | undefined): string | undefined {
 interface Props {
   type: DbType
   value: string
-  schema?: SQLNamespace
+  schema?: CompletionSchema
   onChange(value: string): void
   onRun(text?: string): void
   onView?(view: EditorView): void

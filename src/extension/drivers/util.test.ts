@@ -1,6 +1,6 @@
 import { describe, test } from 'node:test'
 import assert from 'node:assert/strict'
-import { objectsToTable, paginate, splitPgSql, splitSql, stripPgComments, tokenize } from './util'
+import { groupNames, objectsToTable, paginate, splitPgSql, splitSql, stripPgComments, tokenize } from './util'
 import { quoteArg } from './redis'
 
 describe('splitSql (MySQL)', () => {
@@ -109,6 +109,30 @@ describe('objectsToTable', () => {
         [undefined, 1, undefined],
         [undefined, 3, 2]
       ]
+    })
+  })
+})
+
+describe('groupNames', () => {
+  test('groups [table, column] rows', () => {
+    assert.deepEqual({ ...groupNames([['users', 'id'], ['users', 'name'], ['orders', 'id']]) }, {
+      users: ['id', 'name'],
+      orders: ['id']
+    })
+  })
+
+  test('groups [schema, table, column] rows', () => {
+    const tree = groupNames([['public', 'users', 'id'], ['sales', 'orders', 'id'], ['public', 'users', 'name']])
+    assert.deepEqual(JSON.parse(JSON.stringify(tree)), {
+      public: { users: ['id', 'name'] },
+      sales: { orders: ['id'] }
+    })
+  })
+
+  test('works with names that are Object properties', () => {
+    assert.deepEqual(JSON.parse(JSON.stringify(groupNames([['constructor', 'id'], ['__proto__', 'x']]))), {
+      constructor: ['id'],
+      ['__proto__']: ['x']
     })
   })
 })

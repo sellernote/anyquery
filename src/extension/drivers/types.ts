@@ -1,4 +1,13 @@
-import type { EditRequest, EditResult, ExecuteContext, OpenQuery, QueryResult, ResultPage, TreeNode } from '@shared/types'
+import type {
+  CompletionSchema,
+  EditRequest,
+  EditResult,
+  ExecuteContext,
+  OpenQuery,
+  QueryResult,
+  ResultPage,
+  TreeNode
+} from '@shared/types'
 
 /** Reads the next page of a result. hasMore is false on the last page. */
 export interface Cursor {
@@ -26,6 +35,8 @@ export interface Driver {
   children(path: string[]): Promise<TreeNode[]>
   databases(): Promise<string[]>
   openQuery(path: string[]): Promise<OpenQuery>
+  /** Table and column names for autocomplete. Only for SQL databases. */
+  completions?(database?: string): Promise<CompletionSchema>
   /** Results hold only the first page. Read the rest with the cursor. */
   execute(query: string, ctx: ExecuteContext): Promise<DriverResult[]>
   closeSession(sessionId: string): Promise<void>

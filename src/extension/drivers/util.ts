@@ -1,4 +1,4 @@
-import { PAGE_SIZE } from '@shared/types'
+import { PAGE_SIZE, type SqlNamespace } from '@shared/types'
 import type { Cursor, DriverResult, ResultBody } from './types'
 
 export function errorMessage(err: unknown): string {
@@ -49,6 +49,26 @@ export function paginate(result: ResultBody, items?: unknown[]): ResultBody {
     async close() {}
   }
   return { ...result, rows: rows.slice(0, PAGE_SIZE), json: items?.slice(0, PAGE_SIZE), cursor }
+}
+
+/** Most columns read for autocomplete, so a huge database does not send megabytes to the editor */
+export const MAX_COMPLETION_COLUMNS = 50_000
+
+/**
+ * Groups rows such as [table, column] or [schema, table, column] for autocomplete.
+ * Objects have no prototype, so a table named constructor works.
+ */
+export function groupNames(rows: unknown[][]): SqlNamespace {
+  const root: SqlNamespace = Object.create(null)
+  for (const row of rows) {
+    const names = row.map(String)
+    const column = names.pop()!
+    const table = names.pop()!
+    let node = root
+    for (const name of names) node = (node[name] ??= Object.create(null)) as SqlNamespace
+    ;((node[table] ??= []) as string[]).push(column)
+  }
+  return root
 }
 
 export function withTimeout<T>(promise: Promise<T>, ms: number): Promise<T> {

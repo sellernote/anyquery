@@ -1,7 +1,6 @@
 import { useEffect, useRef, useState } from 'react'
 import type { EditorView } from '@uiw/react-codemirror'
-import type { SQLNamespace } from '@codemirror/lang-sql'
-import { DB_LABELS } from '@shared/types'
+import { DB_LABELS, type CompletionSchema } from '@shared/types'
 import { useStore, type Tab } from '../store'
 import { Editor, selectedText } from './Editor'
 import { ResultView } from './ResultView'
@@ -12,7 +11,7 @@ export function QueryTab({ tab, active }: { tab: Tab; active: boolean }) {
   const conn = useStore((s) => s.connections.find((c) => c.id === tab.connectionId))
   const { updateTab, runTab, showPage, download, openCell, saveEdits, discardEdits } = useStore.getState()
   const [databases, setDatabases] = useState<string[]>([])
-  const [schema, setSchema] = useState<SQLNamespace>()
+  const [schema, setSchema] = useState<CompletionSchema>()
   const [split, setSplit] = useState(40)
   const viewRef = useRef<EditorView>(undefined)
   const bodyRef = useRef<HTMLDivElement>(null)
@@ -25,15 +24,16 @@ export function QueryTab({ tab, active }: { tab: Tab; active: boolean }) {
     api.databases(connId).then(setDatabases, () => {})
   }, [connId, type])
 
-  // For MySQL, autocomplete uses table names from the selected database
+  // MySQL and PostgreSQL autocomplete table and column names from the selected database
   useEffect(() => {
-    if (!connId || type !== 'mysql' || !tab.database) {
-      setSchema(undefined)
-      return
+    setSchema(undefined)
+    if (!connId || (type !== 'mysql' && type !== 'postgres')) return
+    // Ignore a slow answer for a database that is no longer selected
+    let current = true
+    api.completions(connId, tab.database).then((s) => current && setSchema(s), () => {})
+    return () => {
+      current = false
     }
-    api
-      .children(connId, [tab.database])
-      .then((nodes) => setSchema(Object.fromEntries(nodes.map((n) => [n.label, []]))), () => {})
   }, [connId, type, tab.database])
 
   if (!conn) return null

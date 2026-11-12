@@ -137,6 +137,17 @@ export interface OpenQuery {
   database?: string
 }
 
+/** Names for autocomplete: table → columns, or schema → table → columns */
+export interface SqlNamespace {
+  [name: string]: string[] | SqlNamespace
+}
+
+export interface CompletionSchema {
+  tables: SqlNamespace
+  /** Tables in this schema complete without the schema name */
+  defaultSchema?: string
+}
+
 export interface ExecuteContext {
   database?: string
   /** Per-tab session. MySQL and PostgreSQL use a dedicated connection per tab. */
@@ -172,6 +183,8 @@ export interface Api {
   children(id: string, path: string[]): Promise<TreeNode[]>
   databases(id: string): Promise<string[]>
   openQuery(id: string, path: string[]): Promise<OpenQuery>
+  /** Table and column names of a database. Empty if the database type has none. */
+  completions(id: string, database?: string): Promise<CompletionSchema>
   execute(id: string, query: string, ctx: ExecuteContext): Promise<QueryResult[]>
   fetchPage(id: string, cursorId: string): Promise<ResultPage>
   closeSession(id: string, sessionId: string): Promise<void>

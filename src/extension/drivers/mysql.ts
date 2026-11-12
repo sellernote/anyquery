@@ -8,6 +8,7 @@ import mysql, {
 import type { Connection as CoreConnection } from 'mysql2'
 import {
   PAGE_SIZE,
+  type CompletionSchema,
   type ConnectionConfig,
   type EditRequest,
   type EditTarget,
@@ -18,7 +19,7 @@ import {
 } from '@shared/types'
 import { plural } from '@shared/format'
 import type { Cursor, Driver, DriverResult, EditOutcome, ResultBody } from './types'
-import { runAll, splitSql, timed, toPlain, withTimeout } from './util'
+import { MAX_COMPLETION_COLUMNS, groupNames, runAll, splitSql, timed, toPlain, withTimeout } from './util'
 import { saveSqlEdits, sqlEditTarget } from './sqlEdits'
 
 interface Session {
@@ -155,6 +156,16 @@ export class MysqlDriver implements Driver {
   async openQuery(path: string[]): Promise<OpenQuery> {
     const [database, table] = path
     return { query: `SELECT * FROM ${quoteId(table)} LIMIT 1000;`, database }
+  }
+
+  async completions(database?: string): Promise<CompletionSchema> {
+    if (!database) return { tables: {} }
+    const rows = await this.rows(
+      `SELECT TABLE_NAME, COLUMN_NAME FROM information_schema.COLUMNS
+       WHERE TABLE_SCHEMA = ? ORDER BY TABLE_NAME, ORDINAL_POSITION LIMIT ${MAX_COMPLETION_COLUMNS}`,
+      [database]
+    )
+    return { tables: groupNames(rows) }
   }
 
   private async session(id: string): Promise<Connection> {

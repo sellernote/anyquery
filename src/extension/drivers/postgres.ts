@@ -10,6 +10,7 @@ import {
 import PgCursor from 'pg-cursor'
 import {
   PAGE_SIZE,
+  type CompletionSchema,
   type ConnectionConfig,
   type EditRequest,
   type EditTarget,
@@ -20,7 +21,16 @@ import {
 } from '@shared/types'
 import { plural } from '@shared/format'
 import type { Cursor, Driver, DriverResult, EditOutcome, ResultBody } from './types'
-import { runAll, splitPgSql, stripPgComments, timed, toPlain, withTimeout } from './util'
+import {
+  MAX_COMPLETION_COLUMNS,
+  groupNames,
+  runAll,
+  splitPgSql,
+  stripPgComments,
+  timed,
+  toPlain,
+  withTimeout
+} from './util'
 import { saveSqlEdits, sqlEditTarget } from './sqlEdits'
 
 interface Session {
@@ -197,6 +207,24 @@ export class PostgresDriver implements Driver {
   async openQuery(path: string[]): Promise<OpenQuery> {
     const [database, schema, table] = path
     return { query: `SELECT * FROM ${quotePgId(schema)}.${quotePgId(table)} LIMIT 1000;`, database }
+  }
+
+  /** Tables of every schema, like the tree. Tables in the first schema of the search path need no schema name. */
+  async completions(database?: string): Promise<CompletionSchema> {
+    database ||= this.defaultDatabase
+    const [[defaultSchema]] = await this.rows(database, 'SELECT current_schema()')
+    const rows = await this.rows(
+      database,
+      `SELECT n.nspname, c.relname, a.attname FROM pg_attribute a
+       JOIN pg_class c ON c.oid = a.attrelid
+       JOIN pg_namespace n ON n.oid = c.relnamespace
+       WHERE a.attnum > 0 AND NOT a.attisdropped
+         AND c.relkind IN ('r', 'p', 'v', 'm', 'f') AND NOT c.relispartition
+         AND n.nspname NOT LIKE 'pg\\_%' AND n.nspname <> 'information_schema'
+       ORDER BY n.nspname, c.relname, a.attnum
+       LIMIT ${MAX_COMPLETION_COLUMNS}`
+    )
+    return { tables: groupNames(rows), defaultSchema: defaultSchema == null ? undefined : String(defaultSchema) }
   }
 
   private async session(id: string, database: string): Promise<Client> {
