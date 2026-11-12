@@ -125,7 +125,7 @@ After saving, only the edited cells change. Run the query again to see other val
 
 ### Where data is stored
 
-Connections are saved in VS Code's extension storage (`globalState`). Passwords are saved separately in VS Code's `SecretStorage`, which uses the OS keychain.
+Connections are saved in VS Code's extension storage (`globalState`). Passwords and MongoDB URIs are saved separately in VS Code's `SecretStorage`, which uses the OS keychain.
 
 ## Limitations
 
