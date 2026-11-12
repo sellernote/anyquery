@@ -1,185 +1,69 @@
 # AnyQuery
 
-A VS Code extension for querying MySQL, PostgreSQL, MongoDB, Redis and OpenSearch in one tab.
-
-Built with React and TypeScript. Needs VS Code 1.101 or later.
+Query MySQL, PostgreSQL, MongoDB, Redis and OpenSearch in one VS Code tab.
 
 ## Why AnyQuery?
 
 - **Five databases in one tab.** Check your OpenSearch indices right next to your MySQL, PostgreSQL, MongoDB and Redis data, without switching tools.
 - **Each database's own query syntax.** Paste queries from mongosh, redis-cli or Kibana Dev Tools and run them as is. No new query language to learn.
-- **Large results don't load all at once.** MySQL, PostgreSQL and MongoDB results are read from the server one page at a time.
+- **Large results load page by page.** MySQL, PostgreSQL and MongoDB results are read from the server one page at a time.
 - **No limits.** Save as many connections and open as many query tabs as you need.
 - **Free and open source.** MIT licensed, with no paid tier.
 
 ## Features
 
-- Browse databases, schemas, tables, collections, keys and indices in a tree, and filter the expanded lists by name
-- Syntax highlighting, plus table and column name autocomplete for MySQL and PostgreSQL
+- Browse databases, tables, collections, keys and indices in a tree, and filter it by name
+- Autocomplete table and column names in MySQL and PostgreSQL
 - View results as a table or as JSON, 200 rows per page
-- Edit cells in MySQL, PostgreSQL and OpenSearch results, then save or discard the changes
-- Download every row of a result as CSV or JSON
-- Passwords are encrypted with the OS keychain
+- Edit cells in MySQL, PostgreSQL and OpenSearch results
+- Cancel a running query
+- Download every row as CSV or JSON
+- Passwords are kept in the OS keychain
 - Follows your VS Code color theme, light or dark
-- Open tabs and their queries come back the next time you open AnyQuery in the same workspace. Results are not kept.
+- Open tabs and their queries come back the next time you open AnyQuery
 
-## Getting started
+## Install
 
-You need Node.js 20.19+ or 22.12+, and pnpm.
-
-```bash
-git clone https://github.com/sellernote/anyquery.git
-cd anyquery
-pnpm install
-pnpm install:package  # builds, packages and installs it into VS Code
-```
-
-Then run `Developer: Reload Window` in VS Code to load the new version. Run the same command again after you change the code. It needs the `code` command in your PATH (in VS Code, run `Shell Command: Install 'code' command in PATH`).
-
-To make a `.vsix` file to share, run `pnpm package`. It writes `anyquery-<version>.vsix`.
-
-npm works too.
-
-### Development
-
-Open the folder in VS Code and press `F5`. It builds the extension and opens a new VS Code window with it loaded. Run `pnpm watch` to rebuild on every change, then run `Developer: Reload Webviews` or reload the window.
+Search for **AnyQuery** in the Extensions view. It is on the [VS Code Marketplace](https://marketplace.visualstudio.com/items?itemName=seller-note.anyquery) and on [Open VSX](https://open-vsx.org/extension/seller-note/anyquery) for Cursor, Windsurf and VSCodium. Needs VS Code 1.101 or later.
 
 ## Usage
 
-1. Click the AnyQuery icon in the Activity Bar, or run `AnyQuery: Open` from the Command Palette (`Cmd+Shift+P`, or `Ctrl+Shift+P` on Windows and Linux).
-2. Click `+` at the top left to add a connection. Click `Test connection` to check it first.
-3. Expand a connection to see its databases and tables (or collections, keys, indices). Click a table to query it in a new tab.
-4. Press `Cmd+Enter` (`Ctrl+Enter` on Windows and Linux) to run. If text is selected, only the selection runs. Click `Cancel` to stop a run (see [Canceling](#canceling)).
-5. Results show 200 rows per page. Use `Previous` and `Next` above the results to change pages.
-6. Double-click a cell to see its full value, or to edit it if the result can be edited (see [Editing results](#editing-results)). Click a column header to sort. Sorting and copying apply to the current page only.
-7. Click `Download` to save every row as CSV or JSON. Pages not read yet are read from the database straight into the file. After that, the tab cannot page further until you run the query again.
+1. Click the AnyQuery icon in the Activity Bar, or run `AnyQuery: Open` from the Command Palette.
+2. Click `+` to add a connection. Click `Test connection` to check it first.
+3. Expand the connection and click a table, collection, key or index to query it in a new tab.
+4. Press `Cmd+Enter` (`Ctrl+Enter` on Windows and Linux) to run. If text is selected, only the selection runs. Click `Cancel` to stop.
+5. Use `Previous` and `Next` above the results to change pages. Click a column header to sort the page.
+6. Double-click a cell to see its full value, or to edit it. Click `Save` to save your changes.
+7. Click `Download` to save every row as CSV or JSON.
 
-### Canceling
-
-`Cancel` stops the statement that is running and skips the ones after it. A statement that already finished keeps its result, even if it finished as you clicked.
-
-| Database | What Cancel does |
-|---|---|
-| MySQL | Stops the statement on the server with `KILL QUERY`. The tab's connection stays open, so variables and transactions persist. `SLEEP()` returns 1 instead of failing. |
-| PostgreSQL | Stops the statement on the server with `pg_cancel_backend`. The tab's connection stays open, but an open transaction is aborted. Run `ROLLBACK` to continue. |
-| OpenSearch | Closes the request. OpenSearch stops a search when its request is closed. |
-| Redis | Stops waiting and reconnects, so a blocking command such as `BLPOP` is released. The server finishes a slow command such as `KEYS`. |
-| MongoDB | Stops waiting. The server finishes the operation. |
-
-### Query syntax
+## Query syntax
 
 | Database | Syntax | Example |
 |---|---|---|
-| MySQL | SQL. Statements separated by `;` run in order and stop at the first error. For procedure and trigger bodies, change the delimiter with `DELIMITER //` and back with `DELIMITER ;`, like the mysql client. Each tab has its own connection, so variables and transactions persist. | `SELECT * FROM users LIMIT 10;` |
-| PostgreSQL | SQL. Statements separated by `;` run in order and stop at the first error. `;` inside `$$ ... $$` function bodies does not split. Each tab has its own connection. | `SELECT * FROM users LIMIT 10;` |
-| MongoDB | mongosh-style JavaScript | `db.users.find({ age: { $gt: 20 } }).sort({ _id: -1 }).limit(20)` |
+| MySQL | SQL. Statements separated by `;` run in order and stop at the first error. For procedure and trigger bodies, use `DELIMITER //` like the mysql client. | `SELECT * FROM users LIMIT 10;` |
+| PostgreSQL | SQL. Statements separated by `;` run in order and stop at the first error. `;` inside `$$` bodies does not split. | `SELECT * FROM users LIMIT 10;` |
+| MongoDB | mongosh-style JavaScript. `show dbs` and `show collections` work too. | `db.users.find({ age: { $gt: 20 } }).limit(20)` |
 | Redis | One command per line, like redis-cli | `HGETALL user:1` |
-| OpenSearch | Kibana Dev Tools syntax: a request line followed by a JSON body | `GET /books/_search` + body |
+| OpenSearch | Kibana Dev Tools syntax: a request line, then a JSON body | `GET /books/_search` |
 
-MongoDB also supports `show dbs`, `show collections`, `ObjectId()`, `ISODate()`, `NumberLong()` and `NumberDecimal()`.
+Each tab has its own MySQL or PostgreSQL connection, so variables and transactions carry over between runs in the tab.
 
-### Paging
+## Good to know
 
-The next page is read from the database when you click `Next`. After you rerun the query in the same tab or close the tab, the old result can no longer be paged. Closing the AnyQuery panel closes every connection.
+- Until every row of a large MySQL or PostgreSQL result (over 5,000 rows) is read, the tab's connection is busy and the table can stay locked. The result closes if you don't read a page for 5 minutes.
+- If the tab has an open transaction, saved cell edits join it. Run `COMMIT` yourself.
+- Canceling in PostgreSQL aborts an open transaction. Run `ROLLBACK` to continue.
+- Closing the AnyQuery panel closes every connection.
 
-| Database | How the next page is read |
-|---|---|
-| MySQL | The result is streamed and paused between pages. See the notes below. |
-| PostgreSQL | Up to 5,000 rows are read ahead, then a server-side cursor reads the rest. See the notes below. |
-| MongoDB | The cursor stays open. The server closes cursors that are idle for 10 minutes. |
-| OpenSearch | For `_search`, the same request is sent again with a larger `from`. The page size is the request's `size` (default 10). The request fails once `from + size` goes over `index.max_result_window` (default 10,000). Page `scroll` and `search_after` requests yourself. |
-| Redis and others | The full reply is kept in the extension and sent one page at a time. |
-
-MySQL notes:
-
-- Up to 5,000 rows are read ahead. Smaller results finish right away.
-- Larger queries are paused. While paused, the tab's connection cannot run other queries and holds a table metadata lock. The result is closed if no page is read for 5 minutes.
-- Each tab's connection sets `net_write_timeout` to 600 seconds, so the server does not drop it during a pause.
-- Rerunning stops the previous query with `KILL QUERY`. The connection stays open, so variables and transactions persist.
-- If you run several statements, only the last one can be paged. The others show their first page only.
-
-PostgreSQL notes:
-
-- A connection opens only one database. Picking another database in a tab opens a new connection, so variables and transactions from before are lost. Without a default database, `postgres` is used.
-- Up to 5,000 rows are read ahead. Smaller results finish right away.
-- For larger results, the cursor stays open until every row is read. The tab's connection cannot run other queries, and the cursor's transaction keeps its locks, so for example `ALTER TABLE` on that table waits. The result is closed if no page is read for 5 minutes.
-- Dates and times are shown as the text the server sends, not converted to your time zone.
-- If you run several statements, only the last one can be paged. The others show their first page only.
-
-### Editing results
-
-A result can be edited when AnyQuery can tell which row each cell belongs to. It then shows `Editable: <table>` above the result.
-
-1. Double-click a cell, change the value and click `Apply` (`Cmd+Enter`). `Set NULL` sets NULL. Changed cells are highlighted.
-2. Click `Save` to save every change, or `Discard` to drop them. Running the query again or closing the tab asks first.
-
-Type values as they are shown. For JSON and arrays, type JSON.
-
-| Database | Editable when | How changes are saved |
-|---|---|---|
-| MySQL, PostgreSQL | The columns come from one table, and its primary key is in the result. A join works if you select columns from only one table. | One `UPDATE ... WHERE <primary key>` per row, in one transaction. If one fails, nothing is saved. |
-| OpenSearch | `_search` results whose hits have `_source` | One update per document by `_index` and `_id`, with `refresh=wait_for`. There are no transactions, so some documents can fail while others are saved. Failed ones stay unsaved. |
-
-These cannot be edited:
-
-- Primary key columns, `_index` and `_id`
-- Expressions, generated columns, binary columns (shown as hex), and PostgreSQL `point` and `circle`
-- Results from views, tables without a primary key, `UNION` and self joins
-- PostgreSQL results where the table name appears more than once in the query, or the query uses `WITH`. PostgreSQL does not say which alias a column came from, so these could be self joins.
-- OpenSearch documents with custom routing, and fields from `fields` or `docvalue_fields`
-
-MySQL and PostgreSQL notes:
-
-- Changes are saved on the tab's connection, like an `UPDATE` you run in the tab.
-- If the tab has an open transaction (after `BEGIN`, or with `autocommit` off in MySQL), the changes join it and are not committed. Run `COMMIT` or `ROLLBACK` yourself.
-- If the result still has rows to read (over 5,000 rows), saving closes it, so it cannot page further.
-- Each row must still exist with the same primary key. Otherwise nothing is saved.
-
-After saving, only the edited cells change. Run the query again to see other values the database changed, such as `ON UPDATE` timestamps. OpenSearch search results always show `_index`, since it is needed to find each document.
-
-### Where data is stored
-
-Connections are saved in VS Code's extension storage (`globalState`). Passwords and MongoDB URIs are saved separately in VS Code's `SecretStorage`, which uses the OS keychain. Open tabs and their queries are saved per workspace (`workspaceState`).
+For paging, editing and canceling in each database, see [How AnyQuery works](docs/details.md).
 
 ## Limitations
 
-Not supported yet:
-
-- SSH tunnels
-- AWS SigV4 auth for OpenSearch (basic auth works)
-- Redis Cluster and Sentinel
-- Editing MongoDB and Redis results
+Not supported yet: SSH tunnels, AWS SigV4 auth for OpenSearch, Redis Cluster and Sentinel, and editing MongoDB and Redis results.
 
 ## Contributing
 
-Issues and pull requests are welcome. Run `pnpm typecheck` and `pnpm test` before you open a pull request. CI runs both on every pull request.
-
-Tests sit next to the code they test, as `*.test.ts`. They use Node's built-in test runner.
-
-### Project structure
-
-```
-src/
-  shared/           Code shared by the extension and the UI
-    rpc.ts          Message format between the webview and the extension
-  extension/        Runs in the VS Code extension host
-    index.ts        Opens the panel and answers webview requests
-    store.ts        Saved connections (passwords in SecretStorage)
-    cursors.ts      Cursors for reading more pages
-    drivers/        One driver per database
-  webview/          React UI shown in the panel
-    api.ts          Calls the extension
-scripts/build.mjs   Bundles both parts with esbuild
-```
-
-All database access happens in the extension. The UI runs in a webview and talks to it only through messages (`webview/api.ts`). Each method of the `Api` interface in `shared/types.ts` is handled by the function of the same name in `extension/index.ts`.
-
-### Adding a database
-
-1. Implement the `Driver` interface (`drivers/types.ts`) in `src/extension/drivers/`. If a result has more than one page, return only the first page with a `cursor`. For results already in memory, use `paginate()` (`drivers/util.ts`). To support editing, set `edit` on results and implement `saveEdits`. SQL databases can use `drivers/sqlEdits.ts`.
-2. Register it in `createDriver` in `drivers/index.ts`.
-3. Add it to `DbType`, `DEFAULT_PORTS` and `DB_LABELS` in `shared/types.ts`.
-4. Add syntax highlighting in `languageFor` in `webview/components/Editor.tsx`.
+Issues and pull requests are welcome. See [CONTRIBUTING.md](CONTRIBUTING.md) to build it from source.
 
 ## License
 
