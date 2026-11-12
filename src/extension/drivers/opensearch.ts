@@ -28,13 +28,12 @@ export function parseRequests(text: string): Request[] {
       continue
     }
     const trimmed = line.trim()
+    // A line of JSON cannot start with # or //, so these are comments wherever they are
+    if (trimmed.startsWith('#') || trimmed.startsWith('//')) continue
     if (!current) {
-      if (trimmed && !trimmed.startsWith('#') && !trimmed.startsWith('//')) {
-        throw new Error('A request must start with a method and a path, such as "GET /index/_search"')
-      }
+      if (trimmed) throw new Error('A request must start with a method and a path, such as "GET /index/_search"')
       continue
     }
-    if (!current.body && (trimmed.startsWith('#') || trimmed.startsWith('//'))) continue
     current.body += line + '\n'
   }
   return requests
