@@ -45,6 +45,36 @@ describe('splitSql (MySQL)', () => {
   test('drops statements that are only comments', () => {
     assert.deepEqual(splitSql('SELECT 1; -- done\n/* end */'), ['SELECT 1'])
   })
+
+  test('DELIMITER changes what ends a statement, like the mysql client', () => {
+    const sql = [
+      'DELIMITER //',
+      'CREATE PROCEDURE p()',
+      'BEGIN',
+      '  SELECT 1;',
+      '  SELECT 2;',
+      'END //',
+      'DELIMITER ;',
+      'CALL p();',
+      'SELECT 3;'
+    ].join('\n')
+    assert.deepEqual(splitSql(sql), ['CREATE PROCEDURE p()\nBEGIN\n  SELECT 1;\n  SELECT 2;\nEND', 'CALL p()', 'SELECT 3'])
+  })
+
+  test('DELIMITER is case-insensitive and the delimiter can be any text', () => {
+    assert.deepEqual(splitSql('  delimiter $$\nSELECT 1; SELECT 2$$SELECT 3$$'), ['SELECT 1; SELECT 2', 'SELECT 3'])
+    assert.deepEqual(splitSql('DELIMITER ;;\nSELECT 1;; SELECT 2;;'), ['SELECT 1', 'SELECT 2'])
+  })
+
+  test('the delimiter inside quotes does not end a statement', () => {
+    assert.deepEqual(splitSql("DELIMITER //\nSELECT '//' //"), ["SELECT '//'"])
+  })
+
+  test('DELIMITER counts only at the start of a statement, outside quotes', () => {
+    assert.deepEqual(splitSql('SELECT\ndelimiter FROM t; SELECT 2'), ['SELECT\ndelimiter FROM t', 'SELECT 2'])
+    assert.deepEqual(splitSql("SELECT 'a\nDELIMITER //'; SELECT 2"), ["SELECT 'a\nDELIMITER //'", 'SELECT 2'])
+    assert.deepEqual(splitSql('-- set it\nDELIMITER //\nSELECT 1 //'), ['SELECT 1'])
+  })
 })
 
 describe('splitPgSql', () => {

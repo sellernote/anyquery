@@ -138,17 +138,35 @@ export function cancelable<T>(work: Promise<T>, signal: AbortSignal, onLate?: (v
   })
 }
 
+/** A mysql client command line such as `DELIMITER //` */
+const DELIMITER_LINE = /[ \t]*delimiter[ \t]+(\S+)[^\n]*/iy
+
 /**
  * Splits SQL on `;`. Ignores `;` inside quotes, backticks and comments.
+ * Like the mysql client, a `DELIMITER //` line at the start of a statement makes `//` end statements
+ * until `DELIMITER ;`, so a procedure body can hold `;`.
  */
 export function splitSql(sql: string): string[] {
   const out: string[] = []
   let buf = ''
   let i = 0
   let quote: string | null = null
+  let delimiter = ';'
+  // Whether the current statement has anything besides comments and spaces
+  let hasCode = false
   while (i < sql.length) {
     const ch = sql[i]
     const next = sql[i + 1]
+    if (!quote && !hasCode && (i === 0 || sql[i - 1] === '\n')) {
+      DELIMITER_LINE.lastIndex = i
+      const m = DELIMITER_LINE.exec(sql)
+      if (m) {
+        delimiter = m[1]
+        buf = ''
+        i += m[0].length
+        continue
+      }
+    }
     if (quote) {
       buf += ch
       if (ch === '\\' && quote !== '`') {
@@ -169,6 +187,7 @@ export function splitSql(sql: string): string[] {
     }
     if (ch === "'" || ch === '"' || ch === '`') {
       quote = ch
+      hasCode = true
       buf += ch
       i++
       continue
@@ -187,12 +206,14 @@ export function splitSql(sql: string): string[] {
       i = stop
       continue
     }
-    if (ch === ';') {
+    if (sql.startsWith(delimiter, i)) {
       out.push(buf)
       buf = ''
-      i++
+      hasCode = false
+      i += delimiter.length
       continue
     }
+    if (!/\s/.test(ch)) hasCode = true
     buf += ch
     i++
   }

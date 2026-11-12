@@ -70,7 +70,7 @@ Open the folder in VS Code and press `F5`. It builds the extension and opens a n
 
 | Database | Syntax | Example |
 |---|---|---|
-| MySQL | SQL. Statements separated by `;` run in order and stop at the first error. Each tab has its own connection, so variables and transactions persist. | `SELECT * FROM users LIMIT 10;` |
+| MySQL | SQL. Statements separated by `;` run in order and stop at the first error. For procedure and trigger bodies, change the delimiter with `DELIMITER //` and back with `DELIMITER ;`, like the mysql client. Each tab has its own connection, so variables and transactions persist. | `SELECT * FROM users LIMIT 10;` |
 | PostgreSQL | SQL. Statements separated by `;` run in order and stop at the first error. `;` inside `$$ ... $$` function bodies does not split. Each tab has its own connection. | `SELECT * FROM users LIMIT 10;` |
 | MongoDB | mongosh-style JavaScript | `db.users.find({ age: { $gt: 20 } }).sort({ _id: -1 }).limit(20)` |
 | Redis | One command per line, like redis-cli | `HGETALL user:1` |
