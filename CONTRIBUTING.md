@@ -23,6 +23,19 @@ Open the folder in VS Code and press `F5`. It builds the extension and opens a n
 
 Before you open a pull request, run `pnpm typecheck` and `pnpm test`. CI runs both on every pull request. Tests sit next to the code they test, as `*.test.ts`, and use Node's built-in test runner.
 
+## Releasing
+
+For maintainers. Bump `version` in `package.json`, commit it, then push a matching tag:
+
+```bash
+git tag -a v0.3.1 -m v0.3.1
+git push origin main v0.3.1
+```
+
+The Release workflow then publishes the extension to the VS Code Marketplace and Open VSX, and attaches the `.vsix` to a GitHub release. It needs two repository secrets: `VSCE_PAT` (Marketplace) and `OVSX_PAT` (Open VSX). The Marketplace token lasts at most a year. When a release fails on it, make a new token and update the secret.
+
+To publish an existing tag again, run the Release workflow by hand from the Actions tab with that tag. Versions already published are skipped.
+
 ## Project structure
 
 ```
